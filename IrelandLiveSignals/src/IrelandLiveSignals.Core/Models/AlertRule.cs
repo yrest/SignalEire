@@ -1,0 +1,21 @@
+namespace IrelandLiveSignals.Core.Models;
+
+public record AlertRule
+{
+    public string Id { get; init; } = string.Empty;
+    public string RuleName { get; init; } = string.Empty;
+    public string Region { get; init; } = "ROI";
+
+    // Threshold conditions — null means "don't check"
+    public double? Co2BelowGPerKwh { get; init; }
+    public double? RenewablesAbovePercent { get; init; }
+    public double? GreenScoreAbove { get; init; }
+
+    // Quiet hours — no alerts fired during this window
+    public TimeOnly? QuietHoursStart { get; init; }
+    public TimeOnly? QuietHoursEnd { get; init; }
+
+    public int MaxAlertsPerDay { get; init; } = 2;
+    public bool IsActive { get; init; } = true;
+    public DateTimeOffset CreatedAtUtc { get; init; }
+}

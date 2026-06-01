@@ -24,6 +24,7 @@ public static class ServiceCollectionExtensions
         var connectionString = configuration.GetConnectionString("Sqlite") ?? "Data Source=data/signals.db";
         services.AddDbContext<GridDbContext>(opts => opts.UseSqlite(connectionString));
         services.AddScoped<IGridReadingRepository, GridReadingRepository>();
+        services.AddScoped<IAlertRuleRepository, AlertRuleRepository>();
 
         return services;
     }
