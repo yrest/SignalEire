@@ -23,11 +23,8 @@ public class GridReadingRepository : IGridReadingRepository
 
     public async Task<IReadOnlyList<GridReading>> GetRangeAsync(DateTimeOffset from, DateTimeOffset to, CancellationToken ct = default)
     {
-        var fromTicks = from.UtcTicks;
-        var toTicks = to.UtcTicks;
         return await _db.GridReadings
-            .Where(r => EF.Property<long>(r, "TimestampUtc") >= fromTicks &&
-                        EF.Property<long>(r, "TimestampUtc") <= toTicks)
+            .Where(r => r.TimestampUtc >= from && r.TimestampUtc <= to)
             .OrderBy(r => r.TimestampUtc)
             .ToListAsync(ct);
     }

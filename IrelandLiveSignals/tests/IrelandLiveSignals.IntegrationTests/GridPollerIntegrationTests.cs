@@ -1,4 +1,3 @@
-using IrelandLiveSignals.Core.Interfaces;
 using IrelandLiveSignals.Core.Models;
 using IrelandLiveSignals.Core.Services;
 using IrelandLiveSignals.Infrastructure.Persistence;
@@ -13,31 +12,26 @@ namespace IrelandLiveSignals.IntegrationTests;
 /// </summary>
 public class GridPollerIntegrationTests
 {
-    private static (GridDbContext db, Microsoft.Data.Sqlite.SqliteConnection conn) CreateInMemoryDb()
+    private static GridDbContext CreateInMemoryDb()
     {
-        // Must keep the connection open for in-memory SQLite to persist between calls
-        var conn = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=:memory:");
-        conn.Open();
         var opts = new DbContextOptionsBuilder<GridDbContext>()
-            .UseSqlite(conn)
+            .UseInMemoryDatabase(databaseName: Guid.NewGuid().ToString())
             .Options;
         var db = new GridDbContext(opts);
         db.Database.EnsureCreated();
-        return (db, conn);
+        return db;
     }
 
     private static GridReading BuildReadingFromSamples()
     {
-        // Load sample payloads (relative to test project output dir)
         var baseDir = AppContext.BaseDirectory;
-        // Walk up to solution root to find data/samples
         var solutionRoot = FindSolutionRoot(baseDir);
         var samplesPath = Path.Combine(solutionRoot, "data", "samples");
 
-        var generationJson    = File.ReadAllText(Path.Combine(samplesPath, "generation_roi_sample.json"));
-        var co2Json           = File.ReadAllText(Path.Combine(samplesPath, "co2_roi_sample.json"));
-        var interconnectJson  = File.ReadAllText(Path.Combine(samplesPath, "interconnect_roi_sample.json"));
-        var demandJson        = File.ReadAllText(Path.Combine(samplesPath, "demand_roi_sample.json"));
+        var generationJson   = File.ReadAllText(Path.Combine(samplesPath, "generation_roi_sample.json"));
+        var co2Json          = File.ReadAllText(Path.Combine(samplesPath, "co2_roi_sample.json"));
+        var interconnectJson = File.ReadAllText(Path.Combine(samplesPath, "interconnect_roi_sample.json"));
+        var demandJson       = File.ReadAllText(Path.Combine(samplesPath, "demand_roi_sample.json"));
 
         var opts = new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true };
 
@@ -92,17 +86,12 @@ public class GridPollerIntegrationTests
     [Fact]
     public async Task FetchNormalizePersistRetrieve_ProducesValidReading()
     {
-        var (db, conn) = CreateInMemoryDb();
-        using var _ = conn;
-        using var _db = db;
+        await using var db = CreateInMemoryDb();
         var repo = new GridReadingRepository(db);
 
         var reading = BuildReadingFromSamples();
-
-        // Persist
         await repo.SaveAsync(reading);
 
-        // Retrieve
         var retrieved = await repo.GetLatestAsync();
 
         Assert.NotNull(retrieved);
@@ -119,9 +108,7 @@ public class GridPollerIntegrationTests
     [Fact]
     public async Task GetLatest_ReturnsNull_WhenNoReadings()
     {
-        var (db, conn) = CreateInMemoryDb();
-        using var _ = conn;
-        using var _db = db;
+        await using var db = CreateInMemoryDb();
         var repo = new GridReadingRepository(db);
 
         var result = await repo.GetLatestAsync();
@@ -131,9 +118,7 @@ public class GridPollerIntegrationTests
     [Fact]
     public async Task GetLatest_ReturnsMostRecent_WhenMultipleExist()
     {
-        var (db, conn) = CreateInMemoryDb();
-        using var _ = conn;
-        using var _db = db;
+        await using var db = CreateInMemoryDb();
         var repo = new GridReadingRepository(db);
 
         var (score1, s1, r1) = GreenScoringService.Compute(40, 300, 60);
@@ -178,11 +163,7 @@ public class GridPollerIntegrationTests
         throw new InvalidOperationException("Solution root not found.");
     }
 
-    // Minimal DTOs for deserialising sample files
-    private class SampleResponse
-    {
-        public List<SampleRow> Rows { get; set; } = new();
-    }
+    private class SampleResponse { public List<SampleRow> Rows { get; set; } = new(); }
 
     private class SampleRow
     {

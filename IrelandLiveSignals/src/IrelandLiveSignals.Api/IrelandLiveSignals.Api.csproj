@@ -7,13 +7,13 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="8.*" />
-  </ItemGroup>
-
-  <ItemGroup>
     <ProjectReference Include="..\IrelandLiveSignals.Core\IrelandLiveSignals.Core.csproj" />
     <ProjectReference Include="..\IrelandLiveSignals.Infrastructure\IrelandLiveSignals.Infrastructure.csproj" />
     <ProjectReference Include="..\IrelandLiveSignals.Worker\IrelandLiveSignals.Worker.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="8.*" />
   </ItemGroup>
 
 </Project>

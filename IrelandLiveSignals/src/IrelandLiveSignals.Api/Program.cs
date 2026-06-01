@@ -1,3 +1,4 @@
+using IrelandLiveSignals.Api.Worker;
 using IrelandLiveSignals.Core.Interfaces;
 using IrelandLiveSignals.Core.Models;
 using IrelandLiveSignals.Core.Services;
@@ -5,10 +6,23 @@ using IrelandLiveSignals.Infrastructure;
 using IrelandLiveSignals.Infrastructure.Persistence;
 using IrelandLiveSignals.Worker;
 
+static double HaversineMeters(double lat1, double lon1, double lat2, double lon2)
+{
+    const double R = 6_371_000;
+    var dLat = (lat2 - lat1) * Math.PI / 180;
+    var dLon = (lon2 - lon1) * Math.PI / 180;
+    var a = Math.Sin(dLat / 2) * Math.Sin(dLat / 2)
+          + Math.Cos(lat1 * Math.PI / 180) * Math.Cos(lat2 * Math.PI / 180)
+          * Math.Sin(dLon / 2) * Math.Sin(dLon / 2);
+    return R * 2 * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1 - a));
+}
+
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddHostedService<GridPollerService>();
+builder.Services.AddHostedService<TransitPollerService>();
+builder.Services.AddHostedService<GtfsStaticRefreshService>();
 builder.Services.AddRazorPages();
 
 var app = builder.Build();
@@ -234,6 +248,100 @@ app.MapGet("/api/grid/alerts/deliveries", async (IAlertRuleRepository repo, int 
 {
     var deliveries = await repo.GetRecentDeliveriesAsync(limit);
     return Results.Ok(deliveries);
+});
+
+// ── Transit stops ─────────────────────────────────────────────────────────
+
+app.MapGet("/api/transit/stops/search", async (ITransitRepository repo, string q, int limit = 20) =>
+{
+    if (string.IsNullOrWhiteSpace(q))
+        return Results.BadRequest(new { error = "q is required." });
+    var stops = await repo.SearchStopsAsync(q, limit);
+    return Results.Ok(stops);
+});
+
+app.MapGet("/api/transit/stops/nearby", async (ITransitRepository repo,
+    double lat, double lon, int radiusMeters = 500, int limit = 20) =>
+{
+    var stops = await repo.GetNearbyStopsAsync(lat, lon, radiusMeters, limit);
+    return Results.Ok(stops);
+});
+
+app.MapGet("/api/transit/stops/{stopId}/arrivals", async (ITransitRepository repo, string stopId,
+    int windowMinutes = 90) =>
+{
+    var stop = await repo.GetStopAsync(stopId);
+    if (stop is null)
+        return Results.NotFound(new { error = $"Stop '{stopId}' not found." });
+
+    var now = DateTimeOffset.UtcNow;
+    var to = now.AddMinutes(windowMinutes);
+    var scheduled = await repo.GetScheduledArrivalsAsync(stopId, now, to);
+
+    var predictions = await Task.WhenAll(scheduled.Select(async item =>
+    {
+        var (st, trip, route) = item;
+        var vehicle = await repo.GetVehicleForTripAsync(trip.TripId);
+        var delay = await repo.GetDelaySecondsAsync(trip.TripId, st.StopId);
+        var alert = await repo.GetAlertForRouteAsync(route.RouteId);
+
+        var presence = vehicle is not null
+            ? VehiclePresence.VehicleConfirmed
+            : delay.HasValue
+                ? VehiclePresence.TripUpdateOnly
+                : VehiclePresence.TimetableOnly;
+
+        double? distToStop = vehicle is not null
+            ? HaversineMeters(vehicle.Lat, vehicle.Lon, stop.StopLat, stop.StopLon)
+            : null;
+
+        var confidence = TransitConfidenceService.Compute(new ConfidenceInput
+        {
+            Presence = presence,
+            GpsAgeSeconds = vehicle?.GpsAgeSeconds,
+            TripIdMatched = vehicle?.TripId == trip.TripId,
+            RouteMatched = vehicle?.RouteId == route.RouteId,
+            DistanceToStopMeters = distToStop,
+            HasServiceAlert = alert is not null,
+            AlertEffect = alert?.Effect ?? string.Empty
+        });
+
+        var scheduledSeconds = st.ArrivalSeconds + (delay ?? 0);
+        var midnight = DateTimeOffset.UtcNow.Date;
+        var eta = new DateTimeOffset(midnight, TimeSpan.Zero).AddSeconds(scheduledSeconds);
+
+        return new
+        {
+            tripId = trip.TripId,
+            routeId = route.RouteId,
+            routeShortName = route.RouteShortName,
+            headsign = trip.TripHeadsign,
+            scheduledArrivalUtc = new DateTimeOffset(midnight, TimeSpan.Zero).AddSeconds(st.ArrivalSeconds),
+            estimatedArrivalUtc = eta,
+            delaySeconds = delay ?? 0,
+            confidence = Math.Round(confidence.Score, 3),
+            ghostRisk = confidence.GhostRisk,
+            statusLabel = confidence.StatusLabel,
+            vehicleId = vehicle?.VehicleId,
+            vehicleLat = vehicle?.Lat,
+            vehicleLon = vehicle?.Lon,
+            alertEffect = alert?.Effect
+        };
+    }));
+
+    return Results.Ok(new { stopId, stopName = stop.StopName, arrivals = predictions });
+});
+
+app.MapGet("/api/transit/routes/{routeId}/vehicles", async (ITransitRepository repo, string routeId) =>
+{
+    var vehicles = await repo.GetVehiclesForRouteAsync(routeId);
+    return Results.Ok(vehicles);
+});
+
+app.MapGet("/api/transit/alerts", async (ITransitRepository repo) =>
+{
+    var alerts = await repo.GetActiveAlertsAsync();
+    return Results.Ok(alerts);
 });
 
 app.Run();

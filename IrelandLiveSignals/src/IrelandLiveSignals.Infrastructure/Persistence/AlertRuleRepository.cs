@@ -46,11 +46,9 @@ public class AlertRuleRepository : IAlertRuleRepository
 
     public async Task<int> CountDeliveriesForRuleTodayAsync(string ruleId, CancellationToken ct = default)
     {
-        var startOfDay = DateTimeOffset.UtcNow.Date;
-        var startTicks = new DateTimeOffset(startOfDay, TimeSpan.Zero).UtcTicks;
+        var startOfDay = new DateTimeOffset(DateTimeOffset.UtcNow.Date, TimeSpan.Zero);
         return await _db.AlertDeliveries
-            .Where(d => d.AlertRuleId == ruleId &&
-                        EF.Property<long>(d, "FiredAtUtc") >= startTicks)
+            .Where(d => d.AlertRuleId == ruleId && d.FiredAtUtc >= startOfDay)
             .CountAsync(ct);
     }
 
