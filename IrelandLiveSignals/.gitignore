@@ -1,0 +1,8 @@
+bin/
+obj/
+*.user
+.vs/
+data/raw/
+data/signals.db
+data/signals.db-shm
+data/signals.db-wal

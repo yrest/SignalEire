@@ -1,0 +1,75 @@
+@page
+@model IndexModel
+@{
+    ViewData["Title"] = "Grid Dashboard";
+}
+
+@if (Model.Reading is null)
+{
+    <div class="no-data">
+        <p>No grid data available yet. The worker will fetch data shortly.</p>
+    </div>
+}
+else
+{
+    var r = Model.Reading;
+    var scoreDisplay = (int)Math.Round(r.GreenScore * 100);
+    var statusClass = r.GreenStatus switch { "good" => "good", "moderate" => "moderate", _ => "poor" };
+
+    <meta http-equiv="refresh" content="60" />
+
+    <div class="grid-dashboard">
+        <div class="score-card @statusClass">
+            <div class="score-value">@scoreDisplay</div>
+            <div class="score-label">Green Score</div>
+            <div class="status-badge @statusClass">@r.GreenStatus.ToUpper()</div>
+        </div>
+
+        <div class="recommendation @statusClass">
+            @r.Recommendation
+        </div>
+
+        <div class="metrics">
+            <div class="metric highlight">
+                <span class="metric-value">@r.Co2IntensityGPerKwh.ToString("F0")</span>
+                <span class="metric-unit">g CO₂/kWh</span>
+                <span class="metric-label">Carbon Intensity</span>
+            </div>
+
+            <div class="metric highlight">
+                <span class="metric-value">@r.RenewablesPercent.ToString("F1")</span>
+                <span class="metric-unit">%</span>
+                <span class="metric-label">Renewable Share</span>
+            </div>
+
+            <div class="metric">
+                <span class="metric-value">@r.WindGenerationMw.ToString("F0")</span>
+                <span class="metric-unit">MW</span>
+                <span class="metric-label">Wind Generation</span>
+            </div>
+
+            @if (r.SolarGenerationMw.HasValue)
+            {
+                <div class="metric">
+                    <span class="metric-value">@r.SolarGenerationMw.Value.ToString("F0")</span>
+                    <span class="metric-unit">MW</span>
+                    <span class="metric-label">Solar Generation</span>
+                </div>
+            }
+
+            <div class="metric">
+                <span class="metric-value">@r.SystemDemandMw.ToString("F0")</span>
+                <span class="metric-unit">MW</span>
+                <span class="metric-label">System Demand</span>
+            </div>
+        </div>
+
+        <div class="freshness">
+            <span>Data timestamp: @r.TimestampUtc.ToString("HH:mm:ss") UTC</span>
+            &bull;
+            <span>Last updated: @r.DataFreshnessSeconds s ago</span>
+            &bull;
+            <span class="quality @(r.QualityStatus == "stale" ? "stale" : "")">@r.QualityStatus</span>
+        </div>
+    </div>
+}

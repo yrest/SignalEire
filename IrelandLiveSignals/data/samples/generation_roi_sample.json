@@ -1,0 +1,26 @@
+{
+  "Rows": [
+    {
+      "EffectiveTime": "01-Jun-2026 13:00:00",
+      "WIND_GENERATION": 1850.0,
+      "HYDRO_GENERATION": 120.0,
+      "PUMP_STORAGE_GENERATION": 0.0,
+      "GAS_GENERATION": 1800.0,
+      "COAL_GENERATION": 200.0,
+      "OTHER_FOSSIL_GENERATION": 80.0,
+      "NET_IMPORT": 250.0,
+      "ACTUAL_GENERATION": 4300.0
+    },
+    {
+      "EffectiveTime": "01-Jun-2026 13:30:00",
+      "WIND_GENERATION": 2120.0,
+      "HYDRO_GENERATION": 130.0,
+      "PUMP_STORAGE_GENERATION": 0.0,
+      "GAS_GENERATION": 1600.0,
+      "COAL_GENERATION": 180.0,
+      "OTHER_FOSSIL_GENERATION": 70.0,
+      "NET_IMPORT": 280.0,
+      "ACTUAL_GENERATION": 4380.0
+    }
+  ]
+}
