@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:vm="clr-namespace:IrelandLiveSignals.MauiClient.ViewModels"
+    xmlns:models="clr-namespace:IrelandLiveSignals.MauiClient.Models"
+    x:Class="IrelandLiveSignals.MauiClient.Views.AlertRulesPage"
+    x:DataType="vm:AlertRulesViewModel"
+    Title="Alert Rules">
+
+    <Grid RowDefinitions="Auto,*">
+
+        <ActivityIndicator
+            Grid.Row="0"
+            IsRunning="{Binding IsLoading}"
+            IsVisible="{Binding IsLoading}"
+            HorizontalOptions="Center"
+            Margin="8" />
+
+        <RefreshView
+            Grid.Row="1"
+            Command="{Binding LoadCommand}"
+            IsRefreshing="{Binding IsLoading}">
+
+            <CollectionView
+                ItemsSource="{Binding Rules}"
+                SelectionMode="None">
+
+                <CollectionView.ItemTemplate>
+                    <DataTemplate x:DataType="models:AlertRuleDto">
+                        <SwipeView>
+                            <SwipeView.RightItems>
+                                <SwipeItems Mode="Execute">
+                                    <SwipeItem
+                                        Text="Delete"
+                                        BackgroundColor="Red"
+                                        Command="{Binding Source={RelativeSource AncestorType={x:Type vm:AlertRulesViewModel}}, Path=DeleteRuleCommand}"
+                                        CommandParameter="{Binding .}" />
+                                </SwipeItems>
+                            </SwipeView.RightItems>
+
+                            <Frame Margin="10,4" Padding="14" CornerRadius="8">
+                                <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto">
+
+                                    <Label
+                                        Grid.Row="0" Grid.Column="0"
+                                        Text="{Binding RuleName}"
+                                        FontSize="15"
+                                        FontAttributes="Bold" />
+
+                                    <Label
+                                        Grid.Row="0" Grid.Column="1"
+                                        Text="{Binding DeliveryMode}"
+                                        FontSize="12"
+                                        TextColor="Gray"
+                                        VerticalOptions="Center" />
+
+                                    <Label
+                                        Grid.Row="1" Grid.ColumnSpan="2"
+                                        Text="{Binding Co2BelowGPerKwh, StringFormat='CO₂ below {0:F0} gCO₂/kWh'}"
+                                        FontSize="13"
+                                        TextColor="Gray"
+                                        IsVisible="{Binding Co2BelowGPerKwh, Converter={StaticResource NotNullBoolConverter}}" />
+
+                                    <Label
+                                        Grid.Row="2" Grid.ColumnSpan="2"
+                                        Text="{Binding RenewablesAbovePercent, StringFormat='Renewables above {0:F0}%'}"
+                                        FontSize="13"
+                                        TextColor="Gray"
+                                        IsVisible="{Binding RenewablesAbovePercent, Converter={StaticResource NotNullBoolConverter}}" />
+
+                                </Grid>
+                            </Frame>
+                        </SwipeView>
+                    </DataTemplate>
+                </CollectionView.ItemTemplate>
+
+                <CollectionView.EmptyView>
+                    <Label
+                        Text="No alert rules configured"
+                        HorizontalOptions="Center"
+                        VerticalOptions="Center"
+                        TextColor="Gray"
+                        Margin="0,32" />
+                </CollectionView.EmptyView>
+
+            </CollectionView>
+        </RefreshView>
+
+    </Grid>
+
+</ContentPage>

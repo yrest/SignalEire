@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:vm="clr-namespace:IrelandLiveSignals.MauiClient.ViewModels"
+    x:Class="IrelandLiveSignals.MauiClient.Views.AccountPage"
+    x:DataType="vm:AccountViewModel"
+    Title="Account">
+
+    <ScrollView>
+        <VerticalStackLayout Padding="20" Spacing="16">
+
+            <!-- Authenticated view -->
+            <VerticalStackLayout
+                IsVisible="{Binding IsAuthenticated}"
+                Spacing="16">
+
+                <Frame CornerRadius="10" Padding="16">
+                    <VerticalStackLayout Spacing="6">
+                        <Label Text="Signed in as" FontSize="13" TextColor="Gray" />
+                        <Label
+                            Text="{Binding DisplayName}"
+                            FontSize="18"
+                            FontAttributes="Bold" />
+                    </VerticalStackLayout>
+                </Frame>
+
+                <Button
+                    Text="Alert Rules"
+                    Command="{Binding GoToAlertsCommand}"
+                    HorizontalOptions="Fill" />
+
+                <Button
+                    Text="Sign Out"
+                    Command="{Binding LogoutCommand}"
+                    BackgroundColor="Red"
+                    TextColor="White"
+                    HorizontalOptions="Fill" />
+
+            </VerticalStackLayout>
+
+            <!-- Unauthenticated view -->
+            <VerticalStackLayout
+                IsVisible="{Binding IsAuthenticated, Converter={StaticResource InvertBoolConverter}}"
+                Spacing="16"
+                Padding="0,32">
+
+                <Label
+                    Text="Sign in to save stops and set up alerts"
+                    FontSize="16"
+                    HorizontalOptions="Center"
+                    HorizontalTextAlignment="Center" />
+
+                <Button
+                    Text="Sign In"
+                    Command="{Binding GoToLoginCommand}"
+                    HorizontalOptions="Fill" />
+
+                <Button
+                    Text="Create Account"
+                    Command="{Binding GoToRegisterCommand}"
+                    Style="{StaticResource OutlinedButtonStyle}"
+                    HorizontalOptions="Fill" />
+
+            </VerticalStackLayout>
+
+        </VerticalStackLayout>
+    </ScrollView>
+
+</ContentPage>

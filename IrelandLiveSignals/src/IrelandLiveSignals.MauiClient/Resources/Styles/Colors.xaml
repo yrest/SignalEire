@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml">
+
+    <Color x:Key="Primary">#1E6FBC</Color>
+    <Color x:Key="PrimaryDark">#1455A4</Color>
+    <Color x:Key="PrimaryDarkText">#C8C8C8</Color>
+
+    <Color x:Key="Secondary">#DFE9F5</Color>
+    <Color x:Key="SecondaryDarkText">#9E9E9E</Color>
+
+    <Color x:Key="Tertiary">#2B0B98</Color>
+
+    <Color x:Key="White">White</Color>
+    <Color x:Key="Black">Black</Color>
+    <Color x:Key="Magenta">#D600AA</Color>
+    <Color x:Key="MidnightBlue">#190649</Color>
+    <Color x:Key="OffBlack">#1F1F1F</Color>
+
+    <Color x:Key="Gray100">#E1E1E1</Color>
+    <Color x:Key="Gray200">#C8C8C8</Color>
+    <Color x:Key="Gray300">#ACACAC</Color>
+    <Color x:Key="Gray400">#919191</Color>
+    <Color x:Key="Gray500">#6E6E6E</Color>
+    <Color x:Key="Gray600">#404040</Color>
+    <Color x:Key="Gray900">#212121</Color>
+    <Color x:Key="Gray950">#141414</Color>
+
+    <Color x:Key="GreenSignal">#2E7D32</Color>
+    <Color x:Key="OrangeSignal">#E65100</Color>
+    <Color x:Key="RedSignal">#C62828</Color>
+
+</ResourceDictionary>

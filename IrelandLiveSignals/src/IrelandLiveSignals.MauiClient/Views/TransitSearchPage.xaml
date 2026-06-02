@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:vm="clr-namespace:IrelandLiveSignals.MauiClient.ViewModels"
+    xmlns:models="clr-namespace:IrelandLiveSignals.MauiClient.Models"
+    x:Class="IrelandLiveSignals.MauiClient.Views.TransitSearchPage"
+    x:DataType="vm:TransitSearchViewModel"
+    Title="Transit">
+
+    <Grid RowDefinitions="Auto,Auto,*">
+
+        <!-- Search bar -->
+        <SearchBar
+            Grid.Row="0"
+            Placeholder="Search stops..."
+            Text="{Binding SearchQuery}"
+            SearchCommand="{Binding SearchCommand}"
+            Margin="8" />
+
+        <!-- Near me / loading row -->
+        <Grid Grid.Row="1" ColumnDefinitions="*,Auto" Margin="8,0,8,8">
+            <ActivityIndicator
+                Grid.Column="0"
+                IsRunning="{Binding IsSearching}"
+                IsVisible="{Binding IsSearching}"
+                HorizontalOptions="Start" />
+            <Button
+                Grid.Column="1"
+                Text="Near Me"
+                Command="{Binding UseLocationCommand}"
+                FontSize="13"
+                Padding="12,6" />
+        </Grid>
+
+        <!-- Results list -->
+        <CollectionView
+            Grid.Row="2"
+            ItemsSource="{Binding Results}"
+            SelectionMode="None">
+
+            <CollectionView.ItemTemplate>
+                <DataTemplate x:DataType="models:TransitStopDto">
+                    <Grid Padding="12,10" ColumnDefinitions="*,Auto">
+                        <VerticalStackLayout Grid.Column="0" Spacing="2">
+                            <Label
+                                Text="{Binding StopName}"
+                                FontSize="15"
+                                FontAttributes="Bold" />
+                            <Label
+                                Text="{Binding StopCode}"
+                                FontSize="12"
+                                TextColor="Gray" />
+                        </VerticalStackLayout>
+                        <Label
+                            Grid.Column="1"
+                            Text="{Binding DistanceMeters, StringFormat='{0:F0}m'}"
+                            FontSize="12"
+                            TextColor="Gray"
+                            VerticalOptions="Center" />
+                        <Grid.GestureRecognizers>
+                            <TapGestureRecognizer
+                                Command="{Binding Source={RelativeSource AncestorType={x:Type vm:TransitSearchViewModel}}, Path=GoToStopCommand}"
+                                CommandParameter="{Binding .}" />
+                        </Grid.GestureRecognizers>
+                    </Grid>
+                </DataTemplate>
+            </CollectionView.ItemTemplate>
+
+            <CollectionView.EmptyView>
+                <Label
+                    Text="Enter a stop name or tap 'Near Me'"
+                    HorizontalOptions="Center"
+                    VerticalOptions="Center"
+                    TextColor="Gray"
+                    Margin="0,32" />
+            </CollectionView.EmptyView>
+
+        </CollectionView>
+
+    </Grid>
+
+</ContentPage>
