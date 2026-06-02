@@ -600,7 +600,230 @@ app.MapGet("/api/transit/reliability", async (ITransitRepository repo,
     return Results.Ok(top);
 });
 
+// ── Auth (JWT) endpoints ──────────────────────────────────────────────────
+
+app.MapPost("/api/auth/login", async (
+    HttpContext ctx,
+    UserManager<ApplicationUser> userManager,
+    GridDbContext db,
+    IConfiguration config,
+    LoginRequest request) =>
+{
+    if (string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(request.Password))
+        return Results.BadRequest(new { error = "Email and password are required." });
+
+    var user = await userManager.FindByEmailAsync(request.Email);
+    if (user is null || !await userManager.CheckPasswordAsync(user, request.Password))
+        return Results.Json(new { error = "Invalid credentials" }, statusCode: 401);
+
+    var accessToken = GenerateJwt(user, config);
+    var plainRefreshToken = GenerateRefreshToken();
+    var expiryDays = int.Parse(config["Jwt:RefreshTokenExpiryDays"] ?? "30");
+
+    var refreshToken = new UserRefreshToken
+    {
+        Id = Guid.NewGuid().ToString("N"),
+        UserId = user.Id,
+        TokenHash = HashToken(plainRefreshToken),
+        DeviceLabel = request.DeviceLabel ?? "unknown",
+        ExpiresAtUtc = DateTimeOffset.UtcNow.AddDays(expiryDays),
+        CreatedAtUtc = DateTimeOffset.UtcNow
+    };
+    db.UserRefreshTokens.Add(refreshToken);
+    await db.SaveChangesAsync();
+
+    var expiry = int.Parse(config["Jwt:AccessTokenExpiryMinutes"] ?? "15");
+    return Results.Ok(new
+    {
+        accessToken,
+        refreshToken = plainRefreshToken,
+        expiresAt = DateTimeOffset.UtcNow.AddMinutes(expiry),
+        userId = user.Id,
+        displayName = user.DisplayName ?? user.UserName ?? string.Empty
+    });
+}).AllowAnonymous();
+
+app.MapPost("/api/auth/refresh", async (
+    GridDbContext db,
+    UserManager<ApplicationUser> userManager,
+    IConfiguration config,
+    RefreshTokenRequest request) =>
+{
+    if (string.IsNullOrWhiteSpace(request.RefreshToken))
+        return Results.Json(new { error = "Invalid or expired refresh token" }, statusCode: 401);
+
+    var hash = HashToken(request.RefreshToken);
+    var stored = await db.UserRefreshTokens
+        .FirstOrDefaultAsync(t => t.TokenHash == hash);
+
+    if (stored is null || stored.IsRevoked || stored.ExpiresAtUtc < DateTimeOffset.UtcNow)
+        return Results.Json(new { error = "Invalid or expired refresh token" }, statusCode: 401);
+
+    // Replay attack detection: token already used
+    if (stored.UsedAtUtc.HasValue)
+    {
+        // Revoke ALL tokens for this user
+        var allTokens = db.UserRefreshTokens.Where(t => t.UserId == stored.UserId);
+        await allTokens.ForEachAsync(t => t.IsRevoked = true);
+        await db.SaveChangesAsync();
+        return Results.Json(new { error = "Invalid or expired refresh token" }, statusCode: 401);
+    }
+
+    stored.UsedAtUtc = DateTimeOffset.UtcNow;
+    stored.IsRevoked = true;
+
+    var user = await userManager.FindByIdAsync(stored.UserId);
+    if (user is null)
+        return Results.Json(new { error = "Invalid or expired refresh token" }, statusCode: 401);
+
+    var newAccessToken = GenerateJwt(user, config);
+    var newPlainRefresh = GenerateRefreshToken();
+    var expiryDays = int.Parse(config["Jwt:RefreshTokenExpiryDays"] ?? "30");
+
+    var newRefreshToken = new UserRefreshToken
+    {
+        Id = Guid.NewGuid().ToString("N"),
+        UserId = user.Id,
+        TokenHash = HashToken(newPlainRefresh),
+        DeviceLabel = stored.DeviceLabel,
+        ExpiresAtUtc = DateTimeOffset.UtcNow.AddDays(expiryDays),
+        CreatedAtUtc = DateTimeOffset.UtcNow
+    };
+    db.UserRefreshTokens.Add(newRefreshToken);
+    await db.SaveChangesAsync();
+
+    var expiry = int.Parse(config["Jwt:AccessTokenExpiryMinutes"] ?? "15");
+    return Results.Ok(new
+    {
+        accessToken = newAccessToken,
+        refreshToken = newPlainRefresh,
+        expiresAt = DateTimeOffset.UtcNow.AddMinutes(expiry),
+        userId = user.Id,
+        displayName = user.DisplayName ?? user.UserName ?? string.Empty
+    });
+}).AllowAnonymous();
+
+app.MapPost("/api/auth/logout", async (
+    HttpContext ctx,
+    GridDbContext db,
+    LogoutRequest request) =>
+{
+    var userId = ctx.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+    if (userId is null) return Results.Unauthorized();
+
+    if (!string.IsNullOrWhiteSpace(request.RefreshToken))
+    {
+        var hash = HashToken(request.RefreshToken);
+        var token = await db.UserRefreshTokens
+            .FirstOrDefaultAsync(t => t.TokenHash == hash && t.UserId == userId);
+        if (token is not null)
+            token.IsRevoked = true;
+    }
+
+    // Remove device token for the platform
+    if (!string.IsNullOrWhiteSpace(request.Platform))
+    {
+        var deviceToken = await db.DeviceTokens
+            .FirstOrDefaultAsync(t => t.UserId == userId && t.Platform == request.Platform);
+        if (deviceToken is not null)
+            db.DeviceTokens.Remove(deviceToken);
+    }
+
+    await db.SaveChangesAsync();
+    return Results.NoContent();
+}).RequireAuthorization(new AuthorizationPolicyBuilder()
+    .AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme)
+    .RequireAuthenticatedUser()
+    .Build());
+
+// ── Device token (mobile push) ─────────────────────────────────────────────
+
+app.MapPost("/api/push/device-token", async (
+    HttpContext ctx,
+    GridDbContext db,
+    DeviceTokenRequest request) =>
+{
+    var userId = ctx.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+    if (userId is null) return Results.Unauthorized();
+
+    // Remove any previous association for this FCM token
+    var existing = await db.DeviceTokens.FirstOrDefaultAsync(t => t.Token == request.Token);
+    if (existing is not null && existing.UserId != userId)
+        db.DeviceTokens.Remove(existing);
+
+    var mine = await db.DeviceTokens
+        .FirstOrDefaultAsync(t => t.UserId == userId && t.Platform == request.Platform);
+
+    if (mine is not null)
+    {
+        mine.LastSeenAtUtc = DateTimeOffset.UtcNow;
+        // Update token if it changed
+        if (mine.Token != request.Token)
+        {
+            db.DeviceTokens.Remove(mine);
+            db.DeviceTokens.Add(new DeviceToken
+            {
+                Id = Guid.NewGuid().ToString("N"),
+                UserId = userId,
+                Token = request.Token,
+                Platform = request.Platform,
+                RegisteredAtUtc = DateTimeOffset.UtcNow,
+                LastSeenAtUtc = DateTimeOffset.UtcNow
+            });
+        }
+    }
+    else
+    {
+        db.DeviceTokens.Add(new DeviceToken
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            UserId = userId,
+            Token = request.Token,
+            Platform = request.Platform,
+            RegisteredAtUtc = DateTimeOffset.UtcNow,
+            LastSeenAtUtc = DateTimeOffset.UtcNow
+        });
+    }
+
+    await db.SaveChangesAsync();
+    return Results.Ok(new { registered = true });
+}).RequireAuthorization(new AuthorizationPolicyBuilder()
+    .AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme)
+    .RequireAuthenticatedUser()
+    .Build());
+
+app.MapDelete("/api/push/device-token", async (
+    HttpContext ctx,
+    GridDbContext db,
+    string platform) =>
+{
+    var userId = ctx.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+    if (userId is null) return Results.Unauthorized();
+
+    var token = await db.DeviceTokens
+        .FirstOrDefaultAsync(t => t.UserId == userId && t.Platform == platform);
+    if (token is not null)
+        db.DeviceTokens.Remove(token);
+
+    await db.SaveChangesAsync();
+    return Results.NoContent();
+}).RequireAuthorization(new AuthorizationPolicyBuilder()
+    .AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme)
+    .RequireAuthenticatedUser()
+    .Build());
+
 // ── /api/me endpoints ─────────────────────────────────────────────────────
+
+// Accept both cookie (Identity) and JWT Bearer. Only add the Bearer scheme
+// to the policy when JWT is actually configured; otherwise the auth middleware
+// throws because no handler is registered for that scheme.
+var jwtConfigured = !string.IsNullOrEmpty(app.Configuration["Jwt:Secret"]);
+var dualSchemePolicyBuilder = new AuthorizationPolicyBuilder()
+    .AddAuthenticationSchemes(IdentityConstants.ApplicationScheme)
+    .RequireAuthenticatedUser();
+if (jwtConfigured)
+    dualSchemePolicyBuilder.AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme);
+var dualSchemePolicy = dualSchemePolicyBuilder.Build();
 
 app.MapGet("/api/me/favourites", async (HttpContext ctx, GridDbContext db) =>
 {
@@ -609,7 +832,7 @@ app.MapGet("/api/me/favourites", async (HttpContext ctx, GridDbContext db) =>
     var favs = await db.FavouriteStops.Where(f => f.UserId == userId)
         .OrderBy(f => f.SortOrder).ToListAsync();
     return Results.Ok(favs);
-}).RequireAuthorization();
+}).RequireAuthorization(dualSchemePolicy);
 
 app.MapPost("/api/me/favourites", async (HttpContext ctx, GridDbContext db, FavouriteStopRequest request) =>
 {
@@ -627,7 +850,7 @@ app.MapPost("/api/me/favourites", async (HttpContext ctx, GridDbContext db, Favo
     db.FavouriteStops.Add(fav);
     await db.SaveChangesAsync();
     return Results.Created($"/api/me/favourites/{fav.Id}", fav);
-}).RequireAuthorization();
+}).RequireAuthorization(dualSchemePolicy);
 
 app.MapDelete("/api/me/favourites/{stopId}", async (HttpContext ctx, GridDbContext db, string stopId) =>
 {
@@ -638,7 +861,7 @@ app.MapDelete("/api/me/favourites/{stopId}", async (HttpContext ctx, GridDbConte
     db.FavouriteStops.Remove(fav);
     await db.SaveChangesAsync();
     return Results.NoContent();
-}).RequireAuthorization();
+}).RequireAuthorization(dualSchemePolicy);
 
 app.MapGet("/api/me/alerts", async (HttpContext ctx, GridDbContext db) =>
 {
@@ -646,7 +869,7 @@ app.MapGet("/api/me/alerts", async (HttpContext ctx, GridDbContext db) =>
     if (userId is null) return Results.Unauthorized();
     var rules = await db.AlertRules.Where(r => r.UserId == userId).ToListAsync();
     return Results.Ok(rules);
-}).RequireAuthorization();
+}).RequireAuthorization(dualSchemePolicy);
 
 app.MapPost("/api/me/alerts", async (HttpContext ctx, GridDbContext db, AlertRuleRequest request) =>
 {
@@ -672,7 +895,7 @@ app.MapPost("/api/me/alerts", async (HttpContext ctx, GridDbContext db, AlertRul
     db.AlertRules.Add(rule);
     await db.SaveChangesAsync();
     return Results.Created($"/api/me/alerts/{rule.Id}", new { rule.Id, rule.RuleName });
-}).RequireAuthorization();
+}).RequireAuthorization(dualSchemePolicy);
 
 app.MapDelete("/api/me/alerts/{id}", async (HttpContext ctx, GridDbContext db, string id) =>
 {
@@ -683,14 +906,14 @@ app.MapDelete("/api/me/alerts/{id}", async (HttpContext ctx, GridDbContext db, s
     db.AlertRules.Remove(rule);
     await db.SaveChangesAsync();
     return Results.NoContent();
-}).RequireAuthorization();
+}).RequireAuthorization(dualSchemePolicy);
 
 app.MapGet("/api/me/devices", (HttpContext ctx) =>
 {
     var userId = ctx.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
     if (userId is null) return Results.Unauthorized();
     return Results.Ok(Array.Empty<object>());
-}).RequireAuthorization();
+}).RequireAuthorization(dualSchemePolicy);
 
 // ── Push API ──────────────────────────────────────────────────────────────
 
@@ -776,6 +999,10 @@ record FavouriteStopRequest(string StopId, string? DisplayLabel, int? SortOrder)
 record PushSubscribeRequest(string Endpoint, PushSubscribeKeys? Keys);
 record PushSubscribeKeys(string P256dh, string Auth);
 record PushUnsubscribeRequest(string Endpoint);
+record LoginRequest(string Email, string Password, string? DeviceLabel);
+record RefreshTokenRequest(string RefreshToken);
+record LogoutRequest(string? RefreshToken, string? Platform);
+record DeviceTokenRequest(string Token, string Platform);
 
 // Required for WebApplicationFactory in integration tests
 public partial class Program { }
