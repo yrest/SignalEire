@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using IrelandLiveSignals.Core.Models;
+using IrelandLiveSignals.Core.Services;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using ProtoBuf;
@@ -14,12 +16,17 @@ public class NtaRealtimeAdapter
     private readonly HttpClient _http;
     private readonly NtaTransitOptions _opts;
     private readonly ILogger<NtaRealtimeAdapter> _logger;
+    private readonly FeedHealthStore? _feedHealth;
+    private readonly SignalEireMetrics? _metrics;
 
-    public NtaRealtimeAdapter(HttpClient http, IOptions<NtaTransitOptions> opts, ILogger<NtaRealtimeAdapter> logger)
+    public NtaRealtimeAdapter(HttpClient http, IOptions<NtaTransitOptions> opts, ILogger<NtaRealtimeAdapter> logger,
+        FeedHealthStore? feedHealth = null, SignalEireMetrics? metrics = null)
     {
         _http = http;
         _opts = opts.Value;
         _logger = logger;
+        _feedHealth = feedHealth;
+        _metrics = metrics;
 
         _http.DefaultRequestHeaders.Remove(_opts.ApiKeyHeader);
         _http.DefaultRequestHeaders.Add(_opts.ApiKeyHeader, _opts.ApiKey);
@@ -27,40 +34,55 @@ public class NtaRealtimeAdapter
 
     public async Task<IReadOnlyList<VehicleObservation>> FetchVehiclesAsync(CancellationToken ct = default)
     {
+        var sw = Stopwatch.StartNew();
         var url = $"{_opts.BaseUrl.TrimEnd('/')}/{_opts.VehiclesPath}";
         _logger.LogDebug("Fetching vehicle positions from {Url}", url);
+        try
+        {
+            var bytes = await _http.GetByteArrayAsync(url, ct);
+            TransitRealtime.FeedMessage feed;
+            using (var ms = new MemoryStream(bytes))
+                feed = Serializer.Deserialize<TransitRealtime.FeedMessage>(ms);
 
-        var bytes = await _http.GetByteArrayAsync(url, ct);
-        TransitRealtime.FeedMessage feed;
-        using (var ms = new MemoryStream(bytes))
-            feed = Serializer.Deserialize<TransitRealtime.FeedMessage>(ms);
+            var now = DateTimeOffset.UtcNow;
 
-        var now = DateTimeOffset.UtcNow;
-
-        return (feed.Entities ?? [])
-            .Where(e => e.Vehicle != null)
-            .Select(e =>
-            {
-                var v = e.Vehicle!;
-                var ts = v.Timestamp;
-                var feedTs = ts > 0 ? DateTimeOffset.FromUnixTimeSeconds((long)ts) : now;
-                var ageSeconds = (int)Math.Max(0, (now - feedTs).TotalSeconds);
-
-                return new VehicleObservation
+            var result = (feed.Entities ?? [])
+                .Where(e => e.Vehicle != null)
+                .Select(e =>
                 {
-                    VehicleId = v.Vehicle?.Id ?? e.Id ?? string.Empty,
-                    TripId = v.Trip?.TripId,
-                    RouteId = v.Trip?.RouteId,
-                    ObservedAtUtc = now,
-                    Lat = v.Position?.Latitude ?? 0,
-                    Lon = v.Position?.Longitude ?? 0,
-                    Bearing = v.Position?.Bearing,
-                    SpeedKph = v.Position != null ? v.Position.Speed * 3.6f : null,
-                    GpsAgeSeconds = ageSeconds,
-                    QualityStatus = ageSeconds > 300 ? "stale" : "ok"
-                };
-            })
-            .ToList();
+                    var v = e.Vehicle!;
+                    var ts = v.Timestamp;
+                    var feedTs = ts > 0 ? DateTimeOffset.FromUnixTimeSeconds((long)ts) : now;
+                    var ageSeconds = (int)Math.Max(0, (now - feedTs).TotalSeconds);
+
+                    return new VehicleObservation
+                    {
+                        VehicleId = v.Vehicle?.Id ?? e.Id ?? string.Empty,
+                        TripId = v.Trip?.TripId,
+                        RouteId = v.Trip?.RouteId,
+                        ObservedAtUtc = now,
+                        Lat = v.Position?.Latitude ?? 0,
+                        Lon = v.Position?.Longitude ?? 0,
+                        Bearing = v.Position?.Bearing,
+                        SpeedKph = v.Position != null ? v.Position.Speed * 3.6f : null,
+                        GpsAgeSeconds = ageSeconds,
+                        QualityStatus = ageSeconds > 300 ? "stale" : "ok"
+                    };
+                })
+                .ToList();
+
+            sw.Stop();
+            _feedHealth?.RecordSuccess("nta_vehicles", sw.Elapsed);
+            _metrics?.FeedFetchDurationMs.Record(sw.Elapsed.TotalMilliseconds);
+            return result;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            sw.Stop();
+            _feedHealth?.RecordFailure("nta_vehicles", ex.Message);
+            _metrics?.FeedFetchFailures.Add(1);
+            throw;
+        }
     }
 
     public async Task<IReadOnlyList<(string TripId, string StopId, int DelaySeconds)>> FetchTripUpdatesAsync(CancellationToken ct = default)

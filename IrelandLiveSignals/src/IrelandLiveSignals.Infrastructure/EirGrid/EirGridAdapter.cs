@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -14,19 +15,28 @@ public class EirGridAdapter : IGridDataAdapter
     private readonly HttpClient _http;
     private readonly EirGridOptions _options;
     private readonly ILogger<EirGridAdapter> _logger;
+    private readonly FeedHealthStore? _feedHealth;
+    private readonly SignalEireMetrics? _metrics;
 
+    private const string SourceName = "eirgrid";
     private static readonly JsonSerializerOptions JsonOpts = new() { PropertyNameCaseInsensitive = true };
 
-    public EirGridAdapter(HttpClient http, IOptions<EirGridOptions> options, ILogger<EirGridAdapter> logger)
+    public EirGridAdapter(HttpClient http, IOptions<EirGridOptions> options, ILogger<EirGridAdapter> logger,
+        FeedHealthStore? feedHealth = null, SignalEireMetrics? metrics = null)
     {
         _http = http;
         _options = options.Value;
         _logger = logger;
+        _feedHealth = feedHealth;
+        _metrics = metrics;
     }
 
     public async Task<(RawGridSnapshot Snapshot, GridReading Reading)> FetchLatestAsync(CancellationToken cancellationToken = default)
     {
+        var sw = Stopwatch.StartNew();
         var now = DateTimeOffset.UtcNow;
+        try
+        {
         var dateStr = now.ToString("dd-MMM-yyyy");
         var baseUrl = _options.BaseUrl.TrimEnd('/') + "/DashboardService.svc/data";
         var region = _options.Region;
@@ -56,7 +66,18 @@ public class EirGridAdapter : IGridDataAdapter
         };
 
         var reading = ParseReading(generationJson, co2Json, interconnectJson, demandJson, now, region, snapshotId);
+        sw.Stop();
+        _feedHealth?.RecordSuccess(SourceName, sw.Elapsed);
+        _metrics?.FeedFetchDurationMs.Record(sw.Elapsed.TotalMilliseconds);
         return (snapshot, reading);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            sw.Stop();
+            _feedHealth?.RecordFailure(SourceName, ex.Message);
+            _metrics?.FeedFetchFailures.Add(1);
+            throw;
+        }
     }
 
     private async Task<string> FetchAreaAsync(string baseUrl, string area, string region, string dateStr, CancellationToken ct)

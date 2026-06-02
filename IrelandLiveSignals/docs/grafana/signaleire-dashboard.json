@@ -1,0 +1,273 @@
+{
+  "uid": "signaleire-main",
+  "title": "SignalEire — Live Signals Dashboard",
+  "tags": ["signaleire", "ireland", "grid", "transit"],
+  "timezone": "Europe/Dublin",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "Row 1: System Health",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "API Request Rate",
+      "description": "HTTP requests per second",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 1 },
+      "targets": [
+        {
+          "expr": "rate(http_server_request_duration_seconds_count{job=\"ireland-live-signals\"}[5m])",
+          "legendFormat": "req/s"
+        }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "HTTP Error Rate",
+      "description": "5xx error rate",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 1 },
+      "targets": [
+        {
+          "expr": "rate(http_server_request_duration_seconds_count{job=\"ireland-live-signals\",http_response_status_code=~\"5..\"}[5m])",
+          "legendFormat": "errors/s"
+        }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "thresholds": { "steps": [{"color": "green", "value": 0}, {"color": "red", "value": 0.1}] } }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "p95 Latency",
+      "description": "95th percentile request latency",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 1 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, rate(http_server_request_duration_seconds_bucket{job=\"ireland-live-signals\"}[5m])) * 1000",
+          "legendFormat": "p95 ms"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ms" } }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "App Uptime",
+      "description": "Process uptime",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 1 },
+      "targets": [
+        {
+          "expr": "process_start_time_seconds{job=\"ireland-live-signals\"}",
+          "legendFormat": "started"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "dateTimeFromNow" } }
+    },
+    {
+      "id": 10,
+      "type": "row",
+      "title": "Row 2: Data Ingestion",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 }
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Feed Fetch Success Rate",
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 6 },
+      "targets": [
+        {
+          "expr": "rate(signaleire_feed_fetch_failures_total[5m])",
+          "legendFormat": "failures/s"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "gauge",
+      "title": "Feed Staleness",
+      "description": "Max seconds since last successful fetch",
+      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 6 },
+      "targets": [
+        {
+          "expr": "signaleire_feed_staleness_seconds",
+          "legendFormat": "staleness"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s", "thresholds": { "steps": [{"color": "green", "value": 0}, {"color": "yellow", "value": 300}, {"color": "red", "value": 600}] } } }
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Feed Fetch Latency",
+      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 6 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, rate(signaleire_feed_fetch_duration_ms_bucket[5m]))",
+          "legendFormat": "p95 ms"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ms" } }
+    },
+    {
+      "id": 20,
+      "type": "row",
+      "title": "Row 3: Grid Intelligence",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 12 }
+    },
+    {
+      "id": 21,
+      "type": "gauge",
+      "title": "CO₂ Intensity (Live)",
+      "description": "Latest grid carbon intensity in g/kWh",
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 13 },
+      "targets": [
+        {
+          "expr": "signaleire_grid_co2_latest_grams_per_kwh",
+          "legendFormat": "g/kWh"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "g/kWh", "thresholds": { "steps": [{"color": "green", "value": 0}, {"color": "yellow", "value": 250}, {"color": "red", "value": 400}] } } }
+    },
+    {
+      "id": 22,
+      "type": "timeseries",
+      "title": "CO₂ Intensity — 24h Trend",
+      "gridPos": { "h": 6, "w": 12, "x": 6, "y": 13 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.5, rate(signaleire_grid_co2_intensity_grams_per_kwh_bucket[30m]))",
+          "legendFormat": "CO₂ median"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "g/kWh" } }
+    },
+    {
+      "id": 23,
+      "type": "timeseries",
+      "title": "Green Score — 24h Trend",
+      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 13 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.5, rate(signaleire_grid_green_score_bucket[30m]))",
+          "legendFormat": "green score median"
+        }
+      ]
+    },
+    {
+      "id": 30,
+      "type": "row",
+      "title": "Row 4: Transit Intelligence",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 19 }
+    },
+    {
+      "id": 31,
+      "type": "stat",
+      "title": "Active Vehicles",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 20 },
+      "targets": [
+        {
+          "expr": "signaleire_transit_active_vehicle_count",
+          "legendFormat": "vehicles"
+        }
+      ]
+    },
+    {
+      "id": 32,
+      "type": "timeseries",
+      "title": "Vehicle Observations Ingested",
+      "gridPos": { "h": 6, "w": 12, "x": 6, "y": 20 },
+      "targets": [
+        {
+          "expr": "rate(signaleire_transit_vehicle_observations_ingested_total[5m])",
+          "legendFormat": "obs/s"
+        }
+      ]
+    },
+    {
+      "id": 33,
+      "type": "timeseries",
+      "title": "Arrival Confidence Distribution",
+      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 20 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.5, rate(signaleire_transit_arrival_confidence_bucket[5m]))",
+          "legendFormat": "p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, rate(signaleire_transit_arrival_confidence_bucket[5m]))",
+          "legendFormat": "p95"
+        }
+      ]
+    },
+    {
+      "id": 40,
+      "type": "row",
+      "title": "Row 5: User Activity",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 26 }
+    },
+    {
+      "id": 41,
+      "type": "stat",
+      "title": "Alerts Fired (24h)",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 27 },
+      "targets": [
+        {
+          "expr": "increase(signaleire_alerts_fired_total[24h])",
+          "legendFormat": "fired"
+        }
+      ]
+    },
+    {
+      "id": 42,
+      "type": "stat",
+      "title": "Alerts Delivered (24h)",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 27 },
+      "targets": [
+        {
+          "expr": "increase(signaleire_alerts_delivered_total[24h])",
+          "legendFormat": "delivered"
+        }
+      ]
+    },
+    {
+      "id": 43,
+      "type": "stat",
+      "title": "Alerts Suppressed (24h)",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 27 },
+      "targets": [
+        {
+          "expr": "increase(signaleire_alerts_suppressed_total[24h])",
+          "legendFormat": "suppressed"
+        }
+      ]
+    },
+    {
+      "id": 44,
+      "type": "timeseries",
+      "title": "Alert Activity Over Time",
+      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 27 },
+      "targets": [
+        {
+          "expr": "rate(signaleire_alerts_fired_total[1h])",
+          "legendFormat": "fired/h"
+        },
+        {
+          "expr": "rate(signaleire_alerts_delivered_total[1h])",
+          "legendFormat": "delivered/h"
+        }
+      ]
+    }
+  ]
+}

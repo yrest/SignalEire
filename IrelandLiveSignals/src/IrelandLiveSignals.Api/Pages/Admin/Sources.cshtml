@@ -1,0 +1,44 @@
+@page
+@model IrelandLiveSignals.Api.Pages.Admin.SourcesModel
+@{
+    ViewData["Title"] = "Feed Sources Health";
+}
+
+<h1>Feed Sources Health</h1>
+<table class="table table-bordered">
+    <thead>
+        <tr>
+            <th>Source</th>
+            <th>Last Fetch</th>
+            <th>Staleness</th>
+            <th>Status</th>
+            <th>Failures (24h)</th>
+            <th>Avg Latency</th>
+        </tr>
+    </thead>
+    <tbody>
+        @foreach (var entry in Model.Entries)
+        {
+            var staleness = entry.LastSuccessUtc == default
+                ? TimeSpan.MaxValue
+                : DateTimeOffset.UtcNow - entry.LastSuccessUtc;
+            var rowClass = staleness.TotalMinutes < 10 ? "table-success"
+                         : staleness.TotalMinutes < 25 ? "table-warning"
+                         : "table-danger";
+            if (!entry.LastAttemptSucceeded) rowClass = "table-danger";
+
+            <tr class="@rowClass">
+                <td>@entry.Source</td>
+                <td>@(entry.LastSuccessUtc == default ? "Never" : entry.LastSuccessUtc.ToString("HH:mm:ss"))</td>
+                <td>@(entry.LastSuccessUtc == default ? "N/A" : staleness.ToString(@"mm\:ss"))</td>
+                <td>@(entry.LastAttemptSucceeded ? "OK" : "FAILED")</td>
+                <td>@entry.FailureCount24h</td>
+                <td>@(entry.AverageLatencyMs.ToString("F0")) ms</td>
+            </tr>
+        }
+        @if (!Model.Entries.Any())
+        {
+            <tr><td colspan="6" class="text-muted">No feed health data yet.</td></tr>
+        }
+    </tbody>
+</table>

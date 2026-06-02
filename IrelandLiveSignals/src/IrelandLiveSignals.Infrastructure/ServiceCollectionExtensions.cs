@@ -1,6 +1,7 @@
 using IrelandLiveSignals.Core.Interfaces;
 using IrelandLiveSignals.Infrastructure.EirGrid;
 using IrelandLiveSignals.Infrastructure.Persistence;
+using IrelandLiveSignals.Infrastructure.Qdrant;
 using IrelandLiveSignals.Infrastructure.Transit;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -39,11 +40,12 @@ public static class ServiceCollectionExtensions
         services.AddHttpClient<EirGridAdapter>();
         services.AddScoped<IGridDataAdapter, EirGridAdapter>();
 
-        var connectionString = configuration.GetConnectionString("SqlServer")
-            ?? "Server=(localdb)\\mssqllocaldb;Database=SignalEire;Trusted_Connection=True;";
+        var connectionString = configuration.GetConnectionString("DefaultConnection")
+            ?? configuration.GetConnectionString("SqlServer")
+            ?? "Data Source=signaleire.db";
 
-        services.AddDbContext<GridDbContext>(opts => opts.UseSqlServer(connectionString));
-        services.AddDbContextFactory<GridDbContext>(opts => opts.UseSqlServer(connectionString),
+        services.AddDbContext<GridDbContext>(opts => opts.UseSqlite(connectionString));
+        services.AddDbContextFactory<GridDbContext>(opts => opts.UseSqlite(connectionString),
             ServiceLifetime.Scoped);
 
         services.AddScoped<IGridReadingRepository, GridReadingRepository>();
@@ -53,6 +55,8 @@ public static class ServiceCollectionExtensions
         services.AddHttpClient<NtaRealtimeAdapter>();
         services.AddScoped<NtaRealtimeAdapter>();
         services.AddScoped<GtfsStaticImporter>();
+
+        services.AddSingleton<IQdrantSummaryIndexer, NullQdrantSummaryIndexer>();
 
         return services;
     }

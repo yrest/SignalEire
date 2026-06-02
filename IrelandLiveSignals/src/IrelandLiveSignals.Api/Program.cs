@@ -6,6 +6,9 @@ using TransitUserReport = IrelandLiveSignals.Core.Models.TransitUserReport;
 using IrelandLiveSignals.Infrastructure;
 using IrelandLiveSignals.Infrastructure.Persistence;
 using IrelandLiveSignals.Worker;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
+using OpenTelemetry.Metrics;
 
 static double HaversineMeters(double lat1, double lon1, double lat2, double lon2)
 {
@@ -21,13 +24,72 @@ static double HaversineMeters(double lat1, double lon1, double lat2, double lon2
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddInfrastructure(builder.Configuration);
+
+// Phase 6 singletons
+builder.Services.AddSingleton<LiveSignalState>();
+builder.Services.AddSingleton<FeedHealthStore>();
+builder.Services.AddSingleton<SignalEireMetrics>();
+
+// OTel setup
+var otlpEndpoint = builder.Configuration["Telemetry:OtlpEndpoint"];
+var otelBuilder = builder.Services.AddOpenTelemetry()
+    .ConfigureResource(r => r
+        .AddService(
+            serviceName: builder.Configuration["Telemetry:ServiceName"] ?? "ireland-live-signals",
+            serviceVersion: System.Reflection.Assembly.GetEntryAssembly()?.GetName().Version?.ToString() ?? "unknown")
+        .AddAttributes(new Dictionary<string, object>
+        {
+            ["deployment.environment"] = builder.Configuration["Telemetry:Environment"] ?? "unknown"
+        }))
+    .WithTracing(tracing =>
+    {
+        tracing
+            .AddAspNetCoreInstrumentation(o =>
+            {
+                o.Filter = ctx => !ctx.Request.Path.StartsWithSegments("/metrics")
+                               && !ctx.Request.Path.StartsWithSegments("/health");
+            })
+            .AddHttpClientInstrumentation()
+            .AddEntityFrameworkCoreInstrumentation();
+        if (!string.IsNullOrEmpty(otlpEndpoint))
+            tracing.AddOtlpExporter(o =>
+            {
+                o.Endpoint = new Uri(otlpEndpoint);
+                o.Headers = $"Authorization={builder.Configuration["Telemetry:OtlpAuthHeader"]}";
+            });
+    })
+    .WithMetrics(metrics =>
+    {
+        metrics
+            .AddAspNetCoreInstrumentation()
+            .AddHttpClientInstrumentation()
+            .AddMeter("IrelandLiveSignals.Grid")
+            .AddMeter("IrelandLiveSignals.Transit")
+            .AddMeter("IrelandLiveSignals.Alerts")
+            .AddMeter("IrelandLiveSignals.Feeds")
+            .AddPrometheusExporter();
+        if (!string.IsNullOrEmpty(otlpEndpoint))
+            metrics.AddOtlpExporter(o =>
+            {
+                o.Endpoint = new Uri(otlpEndpoint);
+                o.Headers = $"Authorization={builder.Configuration["Telemetry:OtlpAuthHeader"]}";
+            });
+    });
+
 builder.Services.AddHostedService<GridPollerService>();
 builder.Services.AddHostedService<TransitPollerService>();
 builder.Services.AddHostedService<GtfsStaticRefreshService>();
 builder.Services.AddHostedService<ReliabilityAggregationService>();
+builder.Services.AddHostedService<AnomalyDetectionJob>();
+builder.Services.AddHostedService<DigestJob>();
 builder.Services.AddRazorPages();
 
 var app = builder.Build();
+
+if (string.IsNullOrEmpty(otlpEndpoint))
+{
+    app.Logger.LogWarning("Telemetry:OtlpEndpoint not configured — OTLP export disabled.");
+}
 
 using (var scope = app.Services.CreateScope())
 {
@@ -35,8 +97,17 @@ using (var scope = app.Services.CreateScope())
     db.Database.EnsureCreated();
 }
 
+// Force singleton initialization so OTel instruments are registered at startup
+_ = app.Services.GetService<SignalEireMetrics>();
+
 app.UseStaticFiles();
 app.UseRouting();
+
+if (builder.Configuration.GetValue("Telemetry:EnablePrometheusEndpoint", true))
+{
+    app.MapPrometheusScrapingEndpoint("/metrics");
+}
+
 app.MapRazorPages();
 
 // ── Grid readings ─────────────────────────────────────────────────────────
@@ -473,3 +544,6 @@ record TransitReportRequest(
     double? Lat,
     double? Lon
 );
+
+// Required for WebApplicationFactory in integration tests
+public partial class Program { }
