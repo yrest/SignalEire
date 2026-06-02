@@ -80,3 +80,5 @@ public record LoginResponse(
     string UserId,
     string DisplayName
 );
+
+public record TariffPlanSummary(string Id, string Name, string Provider, string PlanType);

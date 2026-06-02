@@ -140,6 +140,24 @@ public sealed class SignalEireApiClient : ISignalEireApiClient
         }
     }
 
+    public async Task<List<TariffPlanSummary>?> GetTariffPlansAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            return await _http.GetFromJsonAsync<List<TariffPlanSummary>>("/api/tariff/plans", ct);
+        }
+        catch { return null; }
+    }
+
+    public async Task SetTariffPlanAsync(string? tariffPlanId, CancellationToken ct = default)
+    {
+        try
+        {
+            await _http.PutAsJsonAsync("/api/me/tariff-plan", new { tariffPlanId }, ct);
+        }
+        catch { /* log and swallow */ }
+    }
+
     private async Task<T?> GetAsync<T>(string relativeUrl) where T : class
     {
         try
