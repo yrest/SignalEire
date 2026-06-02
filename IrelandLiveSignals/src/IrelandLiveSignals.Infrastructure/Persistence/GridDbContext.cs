@@ -33,6 +33,10 @@ public class GridDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<SignalAnomaly> SignalAnomalies => Set<SignalAnomaly>();
     public DbSet<AlertFiring> AlertFirings => Set<AlertFiring>();
 
+    // Phase 5 user features
+    public DbSet<FavouriteStop> FavouriteStops => Set<FavouriteStop>();
+    public DbSet<PushSubscription> PushSubscriptions => Set<PushSubscription>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -154,6 +158,19 @@ public class GridDbContext : IdentityDbContext<ApplicationUser>
             e.HasIndex(f => f.AlertRuleId);
             e.HasIndex(f => f.FiredAtUtc);
             e.HasIndex(f => f.IncludedInDigest);
+        });
+
+        modelBuilder.Entity<FavouriteStop>(e =>
+        {
+            e.HasKey(f => f.Id);
+            e.HasIndex(f => f.UserId);
+        });
+
+        modelBuilder.Entity<PushSubscription>(e =>
+        {
+            e.HasKey(p => p.Id);
+            e.HasIndex(p => p.Endpoint).IsUnique();
+            e.HasIndex(p => p.UserId);
         });
     }
 }

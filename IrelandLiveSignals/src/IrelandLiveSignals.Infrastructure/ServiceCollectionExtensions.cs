@@ -1,11 +1,15 @@
 using IrelandLiveSignals.Core.Interfaces;
 using IrelandLiveSignals.Infrastructure.EirGrid;
+using IrelandLiveSignals.Infrastructure.Identity;
 using IrelandLiveSignals.Infrastructure.Persistence;
+using IrelandLiveSignals.Infrastructure.Push;
 using IrelandLiveSignals.Infrastructure.Qdrant;
 using IrelandLiveSignals.Infrastructure.Transit;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace IrelandLiveSignals.Infrastructure;
 
@@ -57,6 +61,17 @@ public static class ServiceCollectionExtensions
         services.AddScoped<GtfsStaticImporter>();
 
         services.AddSingleton<IQdrantSummaryIndexer, NullQdrantSummaryIndexer>();
+
+        services.AddIdentity<ApplicationUser, IdentityRole>(options =>
+        {
+            options.SignIn.RequireConfirmedEmail = false;
+            options.Password.RequiredLength = 8;
+            options.Password.RequireNonAlphanumeric = false;
+        })
+        .AddEntityFrameworkStores<GridDbContext>()
+        .AddDefaultTokenProviders();
+
+        services.AddScoped<IPushNotificationService, VapidPushNotificationService>();
 
         return services;
     }

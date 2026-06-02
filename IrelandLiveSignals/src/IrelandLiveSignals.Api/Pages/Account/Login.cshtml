@@ -1,0 +1,26 @@
+@page
+@model LoginModel
+@{
+    ViewData["Title"] = "Login";
+}
+<h2>Login</h2>
+
+@if (!string.IsNullOrEmpty(Model.ErrorMessage))
+{
+    <div class="alert alert-error">@Model.ErrorMessage</div>
+}
+
+<form method="post">
+    <input type="hidden" name="returnUrl" value="@Model.ReturnUrl" />
+    <div>
+        <label for="Email">Email</label>
+        <input asp-for="Email" type="email" id="Email" required />
+    </div>
+    <div>
+        <label for="Password">Password</label>
+        <input asp-for="Password" type="password" id="Password" required />
+    </div>
+    <button type="submit">Login</button>
+</form>
+<p>No account? <a href="/Account/Register">Register</a></p>
+<p><a href="/Account/ForgotPassword">Forgot password?</a></p>
