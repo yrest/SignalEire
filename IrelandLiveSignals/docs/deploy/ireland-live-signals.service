@@ -1,0 +1,17 @@
+[Unit]
+Description=Ireland Live Signals
+After=network.target
+
+[Service]
+Type=notify
+User=signaleire
+WorkingDirectory=/opt/ireland-live-signals
+ExecStart=/opt/ireland-live-signals/IrelandLiveSignals.Api
+Restart=on-failure
+RestartSec=5
+EnvironmentFile=/etc/ireland-live-signals/environment
+StandardOutput=append:/var/log/ireland-live-signals/app.log
+StandardError=append:/var/log/ireland-live-signals/app.log
+
+[Install]
+WantedBy=multi-user.target

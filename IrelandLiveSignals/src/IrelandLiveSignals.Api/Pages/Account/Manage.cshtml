@@ -1,0 +1,35 @@
+@page
+@model ManageModel
+@{
+    ViewData["Title"] = "Manage Account";
+}
+<h2>Manage Account</h2>
+
+@if (!string.IsNullOrEmpty(Model.StatusMessage))
+{
+    <div class="alert alert-success">@Model.StatusMessage</div>
+}
+
+<form method="post">
+    <div>
+        <label for="DisplayName">Display Name</label>
+        <input asp-for="DisplayName" id="DisplayName" />
+    </div>
+    <div>
+        <label>
+            <input asp-for="PushNotificationsEnabled" type="checkbox" />
+            Enable Push Notifications
+        </label>
+    </div>
+    <div>
+        <label>
+            <input asp-for="DigestEnabled" type="checkbox" />
+            Enable Digest
+        </label>
+    </div>
+    <div>
+        <label for="DigestTime">Digest Time (HH:MM)</label>
+        <input asp-for="DigestTime" type="time" id="DigestTime" />
+    </div>
+    <button type="submit">Save</button>
+</form>

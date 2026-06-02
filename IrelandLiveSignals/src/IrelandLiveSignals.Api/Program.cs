@@ -4,11 +4,16 @@ using IrelandLiveSignals.Core.Models;
 using IrelandLiveSignals.Core.Services;
 using TransitUserReport = IrelandLiveSignals.Core.Models.TransitUserReport;
 using IrelandLiveSignals.Infrastructure;
+using IrelandLiveSignals.Infrastructure.Identity;
 using IrelandLiveSignals.Infrastructure.Persistence;
 using IrelandLiveSignals.Worker;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.EntityFrameworkCore;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using OpenTelemetry.Metrics;
+using System.Threading.RateLimiting;
 
 static double HaversineMeters(double lat1, double lon1, double lat2, double lon2)
 {
@@ -82,9 +87,35 @@ builder.Services.AddHostedService<GtfsStaticRefreshService>();
 builder.Services.AddHostedService<ReliabilityAggregationService>();
 builder.Services.AddHostedService<AnomalyDetectionJob>();
 builder.Services.AddHostedService<DigestJob>();
+builder.Services.AddHostedService<RagSummaryJob>();
 builder.Services.AddRazorPages();
+builder.Services.AddHttpContextAccessor();
+
+builder.Services.AddRateLimiter(options =>
+{
+    options.AddFixedWindowLimiter("public-api", o =>
+    {
+        o.PermitLimit = 60;
+        o.Window = TimeSpan.FromMinutes(1);
+        o.QueueLimit = 0;
+    });
+    options.AddFixedWindowLimiter("push-subscribe", o =>
+    {
+        o.PermitLimit = 10;
+        o.Window = TimeSpan.FromMinutes(1);
+        o.QueueLimit = 0;
+    });
+    options.OnRejected = async (context, ct) =>
+    {
+        context.HttpContext.Response.StatusCode = 429;
+        await context.HttpContext.Response.WriteAsJsonAsync(new { error = "Rate limit exceeded. Please slow down." }, ct);
+    };
+});
 
 var app = builder.Build();
+
+app.UseExceptionHandler("/Error");
+app.UseStatusCodePagesWithReExecute("/{0}");
 
 if (string.IsNullOrEmpty(otlpEndpoint))
 {
@@ -102,6 +133,9 @@ _ = app.Services.GetService<SignalEireMetrics>();
 
 app.UseStaticFiles();
 app.UseRouting();
+app.UseRateLimiter();
+app.UseAuthentication();
+app.UseAuthorization();
 
 if (builder.Configuration.GetValue("Telemetry:EnablePrometheusEndpoint", true))
 {
@@ -132,7 +166,7 @@ app.MapGet("/api/grid/current", async (IGridReadingRepository repo) =>
         status = reading.GreenStatus,
         recommendation = reading.Recommendation
     });
-});
+}).RequireRateLimiting("public-api");
 
 app.MapGet("/api/grid/history", async (IGridReadingRepository repo,
     string? region,
@@ -512,6 +546,145 @@ app.MapGet("/api/transit/reliability", async (ITransitRepository repo,
     return Results.Ok(top);
 });
 
+// ── /api/me endpoints ─────────────────────────────────────────────────────
+
+app.MapGet("/api/me/favourites", async (HttpContext ctx, GridDbContext db) =>
+{
+    var userId = ctx.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+    if (userId is null) return Results.Unauthorized();
+    var favs = await db.FavouriteStops.Where(f => f.UserId == userId)
+        .OrderBy(f => f.SortOrder).ToListAsync();
+    return Results.Ok(favs);
+}).RequireAuthorization();
+
+app.MapPost("/api/me/favourites", async (HttpContext ctx, GridDbContext db, FavouriteStopRequest request) =>
+{
+    var userId = ctx.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+    if (userId is null) return Results.Unauthorized();
+    var fav = new FavouriteStop
+    {
+        Id = Guid.NewGuid().ToString("N"),
+        UserId = userId,
+        StopId = request.StopId,
+        DisplayLabel = request.DisplayLabel,
+        SortOrder = request.SortOrder ?? 0,
+        CreatedAtUtc = DateTimeOffset.UtcNow
+    };
+    db.FavouriteStops.Add(fav);
+    await db.SaveChangesAsync();
+    return Results.Created($"/api/me/favourites/{fav.Id}", fav);
+}).RequireAuthorization();
+
+app.MapDelete("/api/me/favourites/{stopId}", async (HttpContext ctx, GridDbContext db, string stopId) =>
+{
+    var userId = ctx.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+    if (userId is null) return Results.Unauthorized();
+    var fav = await db.FavouriteStops.FirstOrDefaultAsync(f => f.UserId == userId && f.StopId == stopId);
+    if (fav is null) return Results.NotFound();
+    db.FavouriteStops.Remove(fav);
+    await db.SaveChangesAsync();
+    return Results.NoContent();
+}).RequireAuthorization();
+
+app.MapGet("/api/me/alerts", async (HttpContext ctx, GridDbContext db) =>
+{
+    var userId = ctx.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+    if (userId is null) return Results.Unauthorized();
+    var rules = await db.AlertRules.Where(r => r.UserId == userId).ToListAsync();
+    return Results.Ok(rules);
+}).RequireAuthorization();
+
+app.MapPost("/api/me/alerts", async (HttpContext ctx, GridDbContext db, AlertRuleRequest request) =>
+{
+    var userId = ctx.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+    if (userId is null) return Results.Unauthorized();
+    if (string.IsNullOrWhiteSpace(request.RuleName))
+        return Results.BadRequest(new { error = "ruleName is required." });
+    var rule = new AlertRule
+    {
+        Id = $"rule_{Guid.NewGuid():N}",
+        RuleName = request.RuleName,
+        Region = "ROI",
+        Co2BelowGPerKwh = request.Co2BelowGPerKwh,
+        RenewablesAbovePercent = request.RenewablesAbovePercent,
+        GreenScoreAbove = request.GreenScoreAbove,
+        QuietHoursStart = request.QuietHoursStart.HasValue ? TimeOnly.FromTimeSpan(request.QuietHoursStart.Value) : null,
+        QuietHoursEnd = request.QuietHoursEnd.HasValue ? TimeOnly.FromTimeSpan(request.QuietHoursEnd.Value) : null,
+        MaxAlertsPerDay = request.MaxAlertsPerDay ?? 2,
+        IsActive = true,
+        CreatedAtUtc = DateTimeOffset.UtcNow,
+        UserId = userId
+    };
+    db.AlertRules.Add(rule);
+    await db.SaveChangesAsync();
+    return Results.Created($"/api/me/alerts/{rule.Id}", new { rule.Id, rule.RuleName });
+}).RequireAuthorization();
+
+app.MapDelete("/api/me/alerts/{id}", async (HttpContext ctx, GridDbContext db, string id) =>
+{
+    var userId = ctx.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+    if (userId is null) return Results.Unauthorized();
+    var rule = await db.AlertRules.FindAsync(id);
+    if (rule is null || rule.UserId != userId) return Results.NotFound();
+    db.AlertRules.Remove(rule);
+    await db.SaveChangesAsync();
+    return Results.NoContent();
+}).RequireAuthorization();
+
+app.MapGet("/api/me/devices", (HttpContext ctx) =>
+{
+    var userId = ctx.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+    if (userId is null) return Results.Unauthorized();
+    return Results.Ok(Array.Empty<object>());
+}).RequireAuthorization();
+
+// ── Push API ──────────────────────────────────────────────────────────────
+
+app.MapGet("/api/push/vapid-public-key", (IConfiguration config) =>
+{
+    var publicKey = config["WebPush:VapidPublicKey"] ?? "";
+    return Results.Ok(new { publicKey });
+});
+
+app.MapPost("/api/push/subscribe", async (HttpContext ctx, GridDbContext db, PushSubscribeRequest request) =>
+{
+    var userId = ctx.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+    var existing = await db.PushSubscriptions.FirstOrDefaultAsync(s => s.Endpoint == request.Endpoint);
+    if (existing is not null)
+    {
+        existing.LastSeenAtUtc = DateTimeOffset.UtcNow;
+        if (userId is not null) existing.UserId = userId;
+        await db.SaveChangesAsync();
+        return Results.Ok(new { existing.Id });
+    }
+    var sub = new PushSubscription
+    {
+        Id = Guid.NewGuid().ToString("N"),
+        UserId = userId,
+        Endpoint = request.Endpoint,
+        P256Dh = request.Keys?.P256dh ?? "",
+        Auth = request.Keys?.Auth ?? "",
+        SubscribedAtUtc = DateTimeOffset.UtcNow,
+        LastSeenAtUtc = DateTimeOffset.UtcNow
+    };
+    db.PushSubscriptions.Add(sub);
+    await db.SaveChangesAsync();
+    return Results.Created($"/api/push/subscribe/{sub.Id}", new { sub.Id });
+}).RequireRateLimiting("push-subscribe");
+
+app.MapDelete("/api/push/subscribe", async (HttpContext ctx, GridDbContext db) =>
+{
+    var request = await ctx.Request.ReadFromJsonAsync<PushUnsubscribeRequest>();
+    if (request?.Endpoint is null) return Results.BadRequest();
+    var sub = await db.PushSubscriptions.FirstOrDefaultAsync(s => s.Endpoint == request.Endpoint);
+    if (sub is not null)
+    {
+        db.PushSubscriptions.Remove(sub);
+        await db.SaveChangesAsync();
+    }
+    return Results.NoContent();
+});
+
 app.Run();
 
 // ── Request types ─────────────────────────────────────────────────────────
@@ -544,6 +717,11 @@ record TransitReportRequest(
     double? Lat,
     double? Lon
 );
+
+record FavouriteStopRequest(string StopId, string? DisplayLabel, int? SortOrder);
+record PushSubscribeRequest(string Endpoint, PushSubscribeKeys? Keys);
+record PushSubscribeKeys(string P256dh, string Auth);
+record PushUnsubscribeRequest(string Endpoint);
 
 // Required for WebApplicationFactory in integration tests
 public partial class Program { }

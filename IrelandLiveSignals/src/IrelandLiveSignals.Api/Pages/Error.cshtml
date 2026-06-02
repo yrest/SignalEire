@@ -1,0 +1,12 @@
+@page
+@model ErrorModel
+@{
+    ViewData["Title"] = "Error";
+}
+<h2>Something went wrong</h2>
+<p>An unexpected error occurred. Please try again later.</p>
+@if (Model.RequestId is not null)
+{
+    <p><small>Request ID: @Model.RequestId</small></p>
+}
+<a href="/">Return home</a>
