@@ -1,0 +1,74 @@
+@page
+@model IrelandLiveSignals.Api.Pages.DeveloperModel
+@{
+    ViewData["Title"] = "Developer API";
+    Layout = "_Layout";
+}
+<h1>Ireland Live Signals API</h1>
+
+<h2>What it is</h2>
+<p>Free access to live Irish electricity grid data and public transit intelligence for Republic of Ireland. Anonymously rate-limited; request an API key for higher throughput.</p>
+
+<h2>Rate Limits</h2>
+<table class="table">
+    <thead><tr><th>Access Type</th><th>Limit</th><th>Keyed By</th></tr></thead>
+    <tbody>
+        <tr><td>Anonymous</td><td>60 req/min</td><td>IP address</td></tr>
+        <tr><td>API key holder</td><td>200 req/min (default)</td><td>API key</td></tr>
+    </tbody>
+</table>
+
+<h2>Authentication</h2>
+<p>Pass your key in the <code>X-Api-Key</code> header. To request a key, email <a href="mailto:api@@yourdomain.ie">api@@yourdomain.ie</a>.</p>
+
+<h2>Available Endpoints</h2>
+<table class="table">
+    <thead><tr><th>Method</th><th>Path</th><th>Description</th></tr></thead>
+    <tbody>
+        <tr><td>GET</td><td>/api/grid/current</td><td>Latest grid reading (CO&#x2082;, renewables, green score)</td></tr>
+        <tr><td>GET</td><td>/api/grid/history</td><td>Historical grid readings</td></tr>
+        <tr><td>GET</td><td>/api/grid/compare</td><td>Side-by-side ROI / NI comparison</td></tr>
+        <tr><td>GET</td><td>/api/transit/stops/search</td><td>Search transit stops by name or code</td></tr>
+        <tr><td>GET</td><td>/api/transit/stops/nearby</td><td>Stops near a lat/lon</td></tr>
+        <tr><td>GET</td><td>/api/transit/stops/{id}/arrivals</td><td>Confidence-scored arrival predictions</td></tr>
+    </tbody>
+</table>
+<p><a href="/api-docs">Full interactive documentation &rarr;</a></p>
+
+<h2>Code Examples</h2>
+
+<h5>JavaScript</h5>
+<pre><code>const response = await fetch('https://yourdomain.ie/api/grid/current', {
+  headers: { 'X-Api-Key': 'sie_yourkey' }
+});
+const data = await response.json();
+console.log(`CO2: ${data.co2IntensityGPerKwh} g/kWh`);</code></pre>
+
+<h5>C#</h5>
+<pre><code>using var client = new HttpClient();
+client.DefaultRequestHeaders.Add("X-Api-Key", "sie_yourkey");
+var json = await client.GetStringAsync("https://yourdomain.ie/api/grid/current");
+var reading = JsonSerializer.Deserialize&lt;GridReading&gt;(json);</code></pre>
+
+<h5>Python</h5>
+<pre><code>import requests
+response = requests.get(
+    "https://yourdomain.ie/api/grid/current",
+    headers={"X-Api-Key": "sie_yourkey"}
+)
+data = response.json()
+print(f"CO2: {data['co2IntensityGPerKwh']} g/kWh")</code></pre>
+
+<h2>Attribution Requirements</h2>
+<blockquote>
+  Data sourced from Ireland Live Signals (yourdomain.ie), incorporating data from the National Transport Authority of Ireland and EirGrid plc.
+</blockquote>
+
+<h2>Terms of Use</h2>
+<ul>
+    <li>Non-commercial use only without prior agreement</li>
+    <li>Do not cache responses for more than 5 minutes</li>
+    <li>Do not represent the data as your own</li>
+    <li>Attribution required as shown above</li>
+    <li>Rate limits will be enforced; abuse results in key revocation</li>
+</ul>

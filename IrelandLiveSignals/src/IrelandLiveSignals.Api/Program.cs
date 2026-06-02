@@ -1,10 +1,12 @@
 using System.IdentityModel.Tokens.Jwt;
+using System.Reflection;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using FirebaseAdmin;
 using Google.Apis.Auth.OAuth2;
+using IrelandLiveSignals.Api.Middleware;
 using IrelandLiveSignals.Api.Worker;
 using IrelandLiveSignals.Core.Interfaces;
 using IrelandLiveSignals.Core.Models;
@@ -13,6 +15,7 @@ using TransitUserReport = IrelandLiveSignals.Core.Models.TransitUserReport;
 using IrelandLiveSignals.Infrastructure;
 using IrelandLiveSignals.Infrastructure.Identity;
 using IrelandLiveSignals.Infrastructure.Persistence;
+using IrelandLiveSignals.Infrastructure.Services;
 using IrelandLiveSignals.Worker;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
@@ -20,6 +23,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.OpenApi.Models;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using OpenTelemetry.Metrics;
@@ -74,6 +78,40 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddJwtAuth(builder.Configuration);
+
+// Swagger/OpenAPI
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen(o =>
+{
+    o.SwaggerDoc("v1", new OpenApiInfo
+    {
+        Title = "Ireland Live Signals API",
+        Version = "v1",
+        Description = "Live Irish electricity grid and public transit intelligence. " +
+                      "Free for non-commercial use. Attribution required.",
+        Contact = new OpenApiContact { Email = "api@yourdomain.ie" }
+    });
+    o.AddSecurityDefinition("ApiKey", new OpenApiSecurityScheme
+    {
+        Type = SecuritySchemeType.ApiKey,
+        In = ParameterLocation.Header,
+        Name = "X-Api-Key",
+        Description = "Optional. Provides higher rate limits (200 req/min vs 60 req/min anonymous)."
+    });
+    o.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Type = SecuritySchemeType.Http,
+        Scheme = "bearer",
+        BearerFormat = "JWT",
+        Description = "Required for /api/me/* endpoints. Obtain from POST /api/auth/login."
+    });
+    var xmlFile = $"{Assembly.GetExecutingAssembly().GetName().Name}.xml";
+    var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
+    if (File.Exists(xmlPath)) o.IncludeXmlComments(xmlPath);
+    o.DocInclusionPredicate((_, api) =>
+        !(api.RelativePath?.StartsWith("admin/") == true) &&
+        !(api.RelativePath?.StartsWith("api/admin/") == true));
+});
 
 // Phase 6 singletons
 builder.Services.AddSingleton<LiveSignalState>();
@@ -182,12 +220,19 @@ using (var scope = app.Services.CreateScope())
     db.Database.EnsureCreated();
 }
 
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<GridDbContext>();
+    await TariffPlanSeeder.SeedAsync(db);
+}
+
 // Force singleton initialization so OTel instruments are registered at startup
 _ = app.Services.GetService<SignalEireMetrics>();
 
 app.UseStaticFiles();
 app.UseRouting();
 app.UseRateLimiter();
+app.UseMiddleware<ApiKeyMiddleware>();
 app.UseAuthentication();
 app.UseAuthorization();
 
@@ -196,13 +241,21 @@ if (builder.Configuration.GetValue("Telemetry:EnablePrometheusEndpoint", true))
     app.MapPrometheusScrapingEndpoint("/metrics");
 }
 
+app.UseSwagger();
+app.UseSwaggerUI(o =>
+{
+    o.SwaggerEndpoint("/swagger/v1/swagger.json", "SignalEire API v1");
+    o.RoutePrefix = "api-docs";
+    o.DocumentTitle = "Ireland Live Signals API";
+});
+
 app.MapRazorPages();
 
 // ── Grid readings ─────────────────────────────────────────────────────────
 
-app.MapGet("/api/grid/current", async (IGridReadingRepository repo) =>
+app.MapGet("/api/grid/current", async (IGridReadingRepository repo, string? region) =>
 {
-    var reading = await repo.GetLatestAsync();
+    var reading = await repo.GetLatestAsync(region ?? "ROI");
     if (reading is null)
         return Results.Json(new { error = "No grid data available yet." }, statusCode: 503);
 
@@ -220,7 +273,7 @@ app.MapGet("/api/grid/current", async (IGridReadingRepository repo) =>
         status = reading.GreenStatus,
         recommendation = reading.Recommendation
     });
-}).RequireRateLimiting("public-api");
+}).RequireRateLimiting("public-api").AllowAnonymous();
 
 app.MapGet("/api/grid/history", async (IGridReadingRepository repo,
     string? region,
@@ -238,9 +291,9 @@ app.MapGet("/api/grid/history", async (IGridReadingRepository repo,
     }));
 });
 
-app.MapGet("/api/grid/health", async (IGridReadingRepository repo) =>
+app.MapGet("/api/grid/health", async (IGridReadingRepository repo, string? region) =>
 {
-    var reading = await repo.GetLatestAsync();
+    var reading = await repo.GetLatestAsync(region ?? "ROI");
     var secondsSince = reading is null
         ? (int?)null
         : (int)(DateTimeOffset.UtcNow - reading.TimestampUtc).TotalSeconds;
@@ -291,7 +344,10 @@ app.MapGet("/api/grid/best-window", async (IGridReadingRepository repo,
 
 // ── EV charge recommendation ──────────────────────────────────────────────
 
-app.MapPost("/api/grid/recommendations/ev-charge", async (IGridReadingRepository repo, EvChargeRequest request) =>
+app.MapPost("/api/grid/recommendations/ev-charge", async (HttpContext ctx,
+    IGridReadingRepository repo, EvChargeRequest request,
+    UserManager<ApplicationUser> userManager, GridDbContext db,
+    ITariffRateService tariffRateService) =>
 {
     if (request.RequiredKwh <= 0 || request.ChargerKw <= 0)
         return Results.BadRequest(new { error = "requiredKwh and chargerKw must be positive." });
@@ -331,6 +387,39 @@ app.MapPost("/api/grid/recommendations/ev-charge", async (IGridReadingRepository
         explanation.Add($"Estimated CO₂ saving vs charging now: {saving:F2} kg.");
     explanation.Add($"Recommended window satisfies the deadline of {request.DeadlineUtc:HH:mm} UTC.");
 
+    // Load user's tariff plan if authenticated
+    TariffPlanEntity? userTariffPlan = null;
+    var userId = ctx.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+    if (userId is not null)
+    {
+        var user = await userManager.FindByIdAsync(userId);
+        if (user?.PreferredTariffPlanId is not null)
+        {
+            userTariffPlan = await db.TariffPlans
+                .Include(p => p.Periods)
+                .FirstOrDefaultAsync(p => p.Id == user.PreferredTariffPlanId);
+        }
+    }
+
+    // Add cost estimates when a tariff plan is available
+    decimal? estimatedCostEuro = null;
+    decimal? estimatedSavingEuro = null;
+    string? tariffPlanName = null;
+
+    if (userTariffPlan is not null)
+    {
+        var avgRate = tariffRateService.GetAverageRateForWindow(userTariffPlan, best.Start, best.End);
+        estimatedCostEuro = (decimal)request.RequiredKwh * avgRate;
+        var irelandTz = TimeZoneInfo.FindSystemTimeZoneById("Europe/Dublin");
+        var localNow = TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, irelandTz);
+        var currentRate = tariffRateService.GetRateAt(userTariffPlan,
+            TimeOnly.FromDateTime(localNow.DateTime),
+            localNow.DayOfWeek);
+        var currentCostTotal = (decimal)request.RequiredKwh * currentRate;
+        estimatedSavingEuro = Math.Max(0, currentCostTotal - estimatedCostEuro.Value);
+        tariffPlanName = userTariffPlan.Name;
+    }
+
     var recommendation = new GridRecommendation
     {
         Id = $"rec_{Guid.NewGuid():N}",
@@ -349,7 +438,10 @@ app.MapPost("/api/grid/recommendations/ev-charge", async (IGridReadingRepository
         EstimatedAverageCo2GPerKwh = best.AverageCo2,
         EstimatedSavingKgCo2 = saving,
         Confidence = best.Confidence,
-        Explanation = explanation.ToArray()
+        Explanation = explanation.ToArray(),
+        EstimatedCostEuro = estimatedCostEuro,
+        EstimatedSavingEuro = estimatedSavingEuro,
+        TariffPlanName = tariffPlanName
     };
 
     return Results.Ok(new
@@ -361,9 +453,118 @@ app.MapPost("/api/grid/recommendations/ev-charge", async (IGridReadingRepository
         estimatedAverageCo2GPerKwh = recommendation.EstimatedAverageCo2GPerKwh,
         estimatedSavingKgCo2 = recommendation.EstimatedSavingKgCo2,
         confidence = recommendation.Confidence,
-        explanation = recommendation.Explanation
+        explanation = recommendation.Explanation,
+        estimatedCostEuro = recommendation.EstimatedCostEuro,
+        estimatedSavingEuro = recommendation.EstimatedSavingEuro,
+        tariffPlanName = recommendation.TariffPlanName
     });
-});
+}).AllowAnonymous();
+
+// ── Grid compare ─────────────────────────────────────────────────────────
+
+app.MapGet("/api/grid/compare", async (IGridReadingRepository repo, string? regions) =>
+{
+    var regionList = (regions ?? "ROI,NI").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    var snapshots = new List<object>();
+
+    foreach (var regionName in regionList)
+    {
+        var reading = await repo.GetLatestAsync(regionName);
+        if (reading is null)
+            return Results.Json(new { error = $"No reading available for region {regionName}." }, statusCode: 503);
+        snapshots.Add(new
+        {
+            region = reading.Region,
+            timestampUtc = reading.TimestampUtc,
+            co2IntensityGPerKwh = reading.Co2IntensityGPerKwh,
+            renewablesPercent = reading.RenewablesPercent,
+            greenScore = reading.GreenScore,
+            status = reading.GreenStatus
+        });
+    }
+
+    return Results.Ok(new { snapshots });
+}).RequireRateLimiting("public-api").AllowAnonymous();
+
+// ── Tariff plans ──────────────────────────────────────────────────────────
+
+app.MapGet("/api/tariff/plans", async (GridDbContext db) =>
+{
+    var plans = await db.TariffPlans
+        .Where(p => p.IsActive)
+        .Select(p => new { p.Id, p.Name, p.Provider, p.PlanType, p.IsDefault })
+        .ToListAsync();
+    return Results.Ok(plans);
+}).AllowAnonymous().RequireRateLimiting("public-api");
+
+app.MapPost("/api/admin/tariff/plans", async (HttpContext ctx, GridDbContext db,
+    TariffPlanCreateRequest request) =>
+{
+    if (!ctx.User.IsInRole("Admin")) return Results.Forbid();
+    var plan = new TariffPlanEntity
+    {
+        Id = Guid.NewGuid().ToString("N"),
+        Name = request.Name,
+        Provider = request.Provider ?? "Generic",
+        PlanType = request.PlanType ?? "custom",
+        IsActive = true,
+        IsDefault = false,
+        Description = request.Description,
+        CreatedAtUtc = DateTimeOffset.UtcNow
+    };
+    db.TariffPlans.Add(plan);
+    await db.SaveChangesAsync();
+    return Results.Created($"/api/admin/tariff/plans/{plan.Id}", new { plan.Id });
+}).RequireAuthorization();
+
+app.MapDelete("/api/admin/tariff/plans/{id}", async (HttpContext ctx, GridDbContext db, string id) =>
+{
+    if (!ctx.User.IsInRole("Admin")) return Results.Forbid();
+    var plan = await db.TariffPlans.Include(p => p.Periods).FirstOrDefaultAsync(p => p.Id == id);
+    if (plan is null) return Results.NotFound();
+    db.TariffPlans.Remove(plan);
+    await db.SaveChangesAsync();
+    return Results.NoContent();
+}).RequireAuthorization();
+
+// ── Developer API keys ────────────────────────────────────────────────────
+
+app.MapPost("/api/admin/developer-keys", async (HttpContext ctx,
+    IApiKeyService apiKeyService, DevKeyCreateRequest request) =>
+{
+    if (!ctx.User.IsInRole("Admin")) return Results.Forbid();
+    var (record, plaintext) = await apiKeyService.CreateAsync(
+        request.Name, request.OwnerEmail, request.RateLimitPerMinute ?? 200);
+    return Results.Ok(new { record.Id, record.Name, plaintextKey = plaintext,
+        warning = "This key will not be shown again. Copy it now." });
+}).RequireAuthorization();
+
+app.MapGet("/api/admin/developer-keys", async (HttpContext ctx, IApiKeyService apiKeyService) =>
+{
+    if (!ctx.User.IsInRole("Admin")) return Results.Forbid();
+    var keys = await apiKeyService.GetAllAsync();
+    return Results.Ok(keys.Select(k => new
+    {
+        k.Id, k.Name, k.OwnerEmail, k.RateLimitPerMinute,
+        k.IsActive, k.CreatedAtUtc, k.LastUsedAtUtc
+    }));
+}).RequireAuthorization();
+
+app.MapPut("/api/admin/developer-keys/{id}/active", async (HttpContext ctx,
+    IApiKeyService apiKeyService, string id, bool active) =>
+{
+    if (!ctx.User.IsInRole("Admin")) return Results.Forbid();
+    await apiKeyService.SetActiveAsync(id, active);
+    return Results.Ok();
+}).RequireAuthorization();
+
+app.MapDelete("/api/admin/developer-keys/{id}", async (HttpContext ctx,
+    IApiKeyService apiKeyService, string id) =>
+{
+    if (!ctx.User.IsInRole("Admin")) return Results.Forbid();
+    await apiKeyService.DeleteAsync(id);
+    return Results.NoContent();
+}).RequireAuthorization();
 
 // ── Alert rules ───────────────────────────────────────────────────────────
 
@@ -915,6 +1116,32 @@ app.MapGet("/api/me/devices", (HttpContext ctx) =>
     return Results.Ok(Array.Empty<object>());
 }).RequireAuthorization(dualSchemePolicy);
 
+app.MapGet("/api/me/tariff-plan", async (HttpContext ctx, GridDbContext db,
+    UserManager<ApplicationUser> userManager) =>
+{
+    var userId = ctx.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+    if (userId is null) return Results.Unauthorized();
+    var user = await userManager.FindByIdAsync(userId);
+    if (user is null) return Results.Unauthorized();
+    var plan = user.PreferredTariffPlanId is not null
+        ? await db.TariffPlans.FindAsync(user.PreferredTariffPlanId)
+        : null;
+    return Results.Ok(new { tariffPlanId = user.PreferredTariffPlanId, planName = plan?.Name });
+}).RequireAuthorization(dualSchemePolicy);
+
+app.MapPut("/api/me/tariff-plan", async (HttpContext ctx, GridDbContext db,
+    UserManager<ApplicationUser> userManager,
+    TariffPlanSelectRequest request) =>
+{
+    var userId = ctx.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+    if (userId is null) return Results.Unauthorized();
+    var user = await userManager.FindByIdAsync(userId);
+    if (user is null) return Results.Unauthorized();
+    user.PreferredTariffPlanId = request.TariffPlanId;
+    await userManager.UpdateAsync(user);
+    return Results.Ok(new { saved = true });
+}).RequireAuthorization(dualSchemePolicy);
+
 // ── Push API ──────────────────────────────────────────────────────────────
 
 app.MapGet("/api/push/vapid-public-key", (IConfiguration config) =>
@@ -975,6 +1202,10 @@ record EvChargeRequest(
     TimeSpan? QuietHoursStart,
     TimeSpan? QuietHoursEnd
 );
+
+record TariffPlanSelectRequest(string? TariffPlanId);
+record TariffPlanCreateRequest(string Name, string? Provider, string? PlanType, string? Description);
+record DevKeyCreateRequest(string Name, string OwnerEmail, int? RateLimitPerMinute);
 
 record AlertRuleRequest(
     string RuleName,

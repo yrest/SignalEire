@@ -2,7 +2,7 @@ using IrelandLiveSignals.Core.Interfaces;
 using IrelandLiveSignals.Core.Models;
 using Microsoft.Extensions.Logging;
 
-namespace IrelandLiveSignals.Core.Services;
+namespace IrelandLiveSignals.Infrastructure.Services;
 
 public sealed class TariffRateService : ITariffRateService
 {

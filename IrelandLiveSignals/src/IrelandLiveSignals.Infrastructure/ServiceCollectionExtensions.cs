@@ -5,6 +5,7 @@ using IrelandLiveSignals.Infrastructure.Identity;
 using IrelandLiveSignals.Infrastructure.Persistence;
 using IrelandLiveSignals.Infrastructure.Push;
 using IrelandLiveSignals.Infrastructure.Qdrant;
+using IrelandLiveSignals.Infrastructure.Services;
 using IrelandLiveSignals.Infrastructure.Transit;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
@@ -75,6 +76,9 @@ public static class ServiceCollectionExtensions
         .AddDefaultTokenProviders();
 
         services.AddScoped<IPushNotificationService, VapidPushNotificationService>();
+
+        services.AddScoped<ITariffRateService, TariffRateService>();
+        services.AddScoped<IApiKeyService, ApiKeyService>();
 
         var firebasePath = configuration["Firebase:ServiceAccountPath"];
         if (!string.IsNullOrEmpty(firebasePath) && File.Exists(firebasePath))
