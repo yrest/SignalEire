@@ -37,6 +37,10 @@ public class GridDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<FavouriteStop> FavouriteStops => Set<FavouriteStop>();
     public DbSet<PushSubscription> PushSubscriptions => Set<PushSubscription>();
 
+    // Phase 7 — JWT auth + mobile push
+    public DbSet<UserRefreshToken> UserRefreshTokens => Set<UserRefreshToken>();
+    public DbSet<DeviceToken> DeviceTokens => Set<DeviceToken>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -171,6 +175,20 @@ public class GridDbContext : IdentityDbContext<ApplicationUser>
             e.HasKey(p => p.Id);
             e.HasIndex(p => p.Endpoint).IsUnique();
             e.HasIndex(p => p.UserId);
+        });
+
+        modelBuilder.Entity<UserRefreshToken>(e =>
+        {
+            e.HasKey(t => t.Id);
+            e.HasIndex(t => t.UserId);
+            e.HasIndex(t => t.TokenHash).IsUnique();
+        });
+
+        modelBuilder.Entity<DeviceToken>(e =>
+        {
+            e.HasKey(t => t.Id);
+            e.HasIndex(t => t.UserId);
+            e.HasIndex(t => new { t.Token, t.Platform }).IsUnique();
         });
     }
 }

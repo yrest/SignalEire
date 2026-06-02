@@ -19,6 +19,9 @@
     <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="8.*" />
     <PackageReference Include="Microsoft.Extensions.Http" Version="8.*" />
     <PackageReference Include="WebPush" Version="1.0.12" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.*" />
+    <PackageReference Include="FirebaseAdmin" Version="3.*" />
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.*" />
   </ItemGroup>
 
   <ItemGroup>

@@ -1,3 +1,4 @@
+using System.Text;
 using IrelandLiveSignals.Core.Interfaces;
 using IrelandLiveSignals.Infrastructure.EirGrid;
 using IrelandLiveSignals.Infrastructure.Identity;
@@ -5,11 +6,13 @@ using IrelandLiveSignals.Infrastructure.Persistence;
 using IrelandLiveSignals.Infrastructure.Push;
 using IrelandLiveSignals.Infrastructure.Qdrant;
 using IrelandLiveSignals.Infrastructure.Transit;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.IdentityModel.Tokens;
 
 namespace IrelandLiveSignals.Infrastructure;
 
@@ -72,6 +75,45 @@ public static class ServiceCollectionExtensions
         .AddDefaultTokenProviders();
 
         services.AddScoped<IPushNotificationService, VapidPushNotificationService>();
+
+        var firebasePath = configuration["Firebase:ServiceAccountPath"];
+        if (!string.IsNullOrEmpty(firebasePath) && File.Exists(firebasePath))
+        {
+            services.AddScoped<IMobilePushService, FirebaseMobilePushService>();
+        }
+        else
+        {
+            services.AddScoped<IMobilePushService, NullMobilePushService>();
+        }
+
+        return services;
+    }
+
+    public static IServiceCollection AddJwtAuth(this IServiceCollection services, IConfiguration configuration)
+    {
+        var secret = configuration["Jwt:Secret"];
+        if (string.IsNullOrEmpty(secret))
+        {
+            // JWT not configured — skip (app still works with cookie auth)
+            return services;
+        }
+
+        services.AddAuthentication()
+            .AddJwtBearer(JwtBearerDefaults.AuthenticationScheme, options =>
+            {
+                options.TokenValidationParameters = new TokenValidationParameters
+                {
+                    ValidateIssuer           = true,
+                    ValidateAudience         = true,
+                    ValidateLifetime         = true,
+                    ValidateIssuerSigningKey = true,
+                    ValidIssuer              = configuration["Jwt:Issuer"],
+                    ValidAudience            = configuration["Jwt:Audience"],
+                    IssuerSigningKey         = new SymmetricSecurityKey(
+                        Encoding.UTF8.GetBytes(secret)),
+                    ClockSkew = TimeSpan.FromSeconds(30)
+                };
+            });
 
         return services;
     }

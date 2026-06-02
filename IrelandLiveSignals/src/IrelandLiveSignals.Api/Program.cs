@@ -1,3 +1,10 @@
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using FirebaseAdmin;
+using Google.Apis.Auth.OAuth2;
 using IrelandLiveSignals.Api.Worker;
 using IrelandLiveSignals.Core.Interfaces;
 using IrelandLiveSignals.Core.Models;
@@ -7,9 +14,12 @@ using IrelandLiveSignals.Infrastructure;
 using IrelandLiveSignals.Infrastructure.Identity;
 using IrelandLiveSignals.Infrastructure.Persistence;
 using IrelandLiveSignals.Worker;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using OpenTelemetry.Metrics;
@@ -26,9 +36,44 @@ static double HaversineMeters(double lat1, double lon1, double lat2, double lon2
     return R * 2 * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1 - a));
 }
 
+static string HashToken(string token)
+{
+    var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(token));
+    return Convert.ToBase64String(bytes);
+}
+
+static string GenerateRefreshToken() =>
+    Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
+
+static string GenerateJwt(ApplicationUser user, IConfiguration config)
+{
+    var secret = config["Jwt:Secret"]!;
+    var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secret));
+    var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+    var expiry = int.Parse(config["Jwt:AccessTokenExpiryMinutes"] ?? "15");
+
+    var claims = new[]
+    {
+        new Claim(JwtRegisteredClaimNames.Sub, user.Id),
+        new Claim(JwtRegisteredClaimNames.Email, user.Email ?? ""),
+        new Claim("display_name", user.DisplayName ?? user.UserName ?? ""),
+        new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
+    };
+
+    var token = new JwtSecurityToken(
+        issuer: config["Jwt:Issuer"],
+        audience: config["Jwt:Audience"],
+        claims: claims,
+        expires: DateTime.UtcNow.AddMinutes(expiry),
+        signingCredentials: creds);
+
+    return new JwtSecurityTokenHandler().WriteToken(token);
+}
+
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddInfrastructure(builder.Configuration);
+builder.Services.AddJwtAuth(builder.Configuration);
 
 // Phase 6 singletons
 builder.Services.AddSingleton<LiveSignalState>();
@@ -113,6 +158,15 @@ builder.Services.AddRateLimiter(options =>
 });
 
 var app = builder.Build();
+
+var firebasePath = builder.Configuration["Firebase:ServiceAccountPath"];
+if (!string.IsNullOrEmpty(firebasePath) && File.Exists(firebasePath))
+{
+    FirebaseApp.Create(new AppOptions
+    {
+        Credential = GoogleCredential.FromFile(firebasePath)
+    });
+}
 
 app.UseExceptionHandler("/Error");
 app.UseStatusCodePagesWithReExecute("/{0}");
