@@ -1,0 +1,158 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:vm="clr-namespace:IrelandLiveSignals.MauiClient.ViewModels"
+    xmlns:conv="clr-namespace:IrelandLiveSignals.MauiClient.Converters"
+    x:Class="IrelandLiveSignals.MauiClient.Views.GridPage"
+    x:DataType="vm:GridViewModel"
+    Title="Grid">
+
+    <ContentPage.Resources>
+        <conv:Co2ToColorConverter x:Key="Co2ToColor" />
+        <conv:BoolToVisibilityConverter x:Key="BoolToVis" />
+    </ContentPage.Resources>
+
+    <RefreshView
+        Command="{Binding RefreshCommand}"
+        IsRefreshing="{Binding IsLoading}">
+
+        <ScrollView>
+            <VerticalStackLayout Padding="16" Spacing="12">
+
+                <!-- Offline banner -->
+                <Frame
+                    BackgroundColor="Orange"
+                    Padding="8"
+                    CornerRadius="6"
+                    IsVisible="{Binding IsOffline}">
+                    <Label
+                        Text="Showing cached data — you appear to be offline"
+                        TextColor="White"
+                        FontSize="13"
+                        HorizontalOptions="Center" />
+                </Frame>
+
+                <!-- Loading indicator when no data yet -->
+                <ActivityIndicator
+                    IsRunning="{Binding IsLoading}"
+                    IsVisible="{Binding IsLoading}"
+                    HorizontalOptions="Center"
+                    Margin="0,32" />
+
+                <!-- Grid data -->
+                <VerticalStackLayout
+                    IsVisible="{Binding CurrentReading, Converter={StaticResource BoolToVis}}"
+                    Spacing="12">
+
+                    <Label
+                        Text="Ireland Grid Status"
+                        FontSize="22"
+                        FontAttributes="Bold" />
+
+                    <Label
+                        Text="{Binding LastUpdatedText}"
+                        FontSize="12"
+                        TextColor="Gray" />
+
+                    <!-- CO2 Intensity card -->
+                    <Frame CornerRadius="10" Padding="16">
+                        <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto">
+                            <Label
+                                Grid.Row="0" Grid.Column="0"
+                                Text="CO₂ Intensity"
+                                FontSize="14"
+                                TextColor="Gray" />
+                            <Label
+                                Grid.Row="1" Grid.Column="0"
+                                Text="{Binding CurrentReading.Co2IntensityGPerKwh, StringFormat='{0:F0} gCO₂/kWh'}"
+                                FontSize="28"
+                                FontAttributes="Bold"
+                                TextColor="{Binding CurrentReading.Co2IntensityGPerKwh, Converter={StaticResource Co2ToColor}}" />
+                            <Label
+                                Grid.Row="0" Grid.RowSpan="2" Grid.Column="1"
+                                Text="{Binding CurrentReading.Recommendation}"
+                                FontSize="13"
+                                VerticalOptions="Center"
+                                Margin="8,0,0,0" />
+                        </Grid>
+                    </Frame>
+
+                    <!-- Renewables card -->
+                    <Frame CornerRadius="10" Padding="16">
+                        <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto">
+                            <Label
+                                Grid.Row="0" Grid.Column="0"
+                                Text="Renewables"
+                                FontSize="14"
+                                TextColor="Gray" />
+                            <Label
+                                Grid.Row="1" Grid.Column="0"
+                                Text="{Binding CurrentReading.RenewablesPercent, StringFormat='{0:F1}%'}"
+                                FontSize="24"
+                                FontAttributes="Bold"
+                                TextColor="Green" />
+                            <Label
+                                Grid.Row="0" Grid.Column="1"
+                                Text="Green Score"
+                                FontSize="14"
+                                TextColor="Gray" />
+                            <Label
+                                Grid.Row="1" Grid.Column="1"
+                                Text="{Binding CurrentReading.GreenScore, StringFormat='{0:F0}/100'}"
+                                FontSize="24"
+                                FontAttributes="Bold"
+                                TextColor="Green" />
+                        </Grid>
+                    </Frame>
+
+                    <!-- Generation breakdown card -->
+                    <Frame CornerRadius="10" Padding="16">
+                        <VerticalStackLayout Spacing="6">
+                            <Label Text="Generation" FontSize="16" FontAttributes="Bold" />
+                            <Grid ColumnDefinitions="*,Auto">
+                                <Label Grid.Column="0" Text="Wind" />
+                                <Label
+                                    Grid.Column="1"
+                                    Text="{Binding CurrentReading.WindGenerationMw, StringFormat='{0:F0} MW'}"
+                                    FontAttributes="Bold" />
+                            </Grid>
+                            <Grid ColumnDefinitions="*,Auto">
+                                <Label Grid.Column="0" Text="Solar" />
+                                <Label
+                                    Grid.Column="1"
+                                    Text="{Binding CurrentReading.SolarGenerationMw, StringFormat='{0:F0} MW'}"
+                                    FontAttributes="Bold" />
+                            </Grid>
+                            <Grid ColumnDefinitions="*,Auto">
+                                <Label Grid.Column="0" Text="System Demand" />
+                                <Label
+                                    Grid.Column="1"
+                                    Text="{Binding CurrentReading.SystemDemandMw, StringFormat='{0:F0} MW'}"
+                                    FontAttributes="Bold" />
+                            </Grid>
+                        </VerticalStackLayout>
+                    </Frame>
+
+                    <!-- Status -->
+                    <Frame CornerRadius="10" Padding="12" BackgroundColor="#F0FFF4">
+                        <Label
+                            Text="{Binding CurrentReading.Status}"
+                            FontSize="14"
+                            HorizontalOptions="Center" />
+                    </Frame>
+
+                </VerticalStackLayout>
+
+                <!-- Error -->
+                <Label
+                    Text="{Binding ErrorMessage}"
+                    TextColor="Red"
+                    IsVisible="{Binding ErrorMessage, Converter={StaticResource BoolToVis}}"
+                    HorizontalOptions="Center" />
+
+            </VerticalStackLayout>
+        </ScrollView>
+    </RefreshView>
+
+</ContentPage>

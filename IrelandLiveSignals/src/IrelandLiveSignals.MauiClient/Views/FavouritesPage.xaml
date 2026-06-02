@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:vm="clr-namespace:IrelandLiveSignals.MauiClient.ViewModels"
+    xmlns:models="clr-namespace:IrelandLiveSignals.MauiClient.Models"
+    x:Class="IrelandLiveSignals.MauiClient.Views.FavouritesPage"
+    x:DataType="vm:FavouritesViewModel"
+    Title="Saved">
+
+    <Grid RowDefinitions="Auto,*">
+
+        <!-- Login prompt -->
+        <VerticalStackLayout
+            Grid.Row="0"
+            IsVisible="{Binding ShowLoginPrompt}"
+            Spacing="12"
+            Padding="24"
+            VerticalOptions="Center">
+            <Label
+                Text="Sign in to view your saved stops"
+                FontSize="16"
+                HorizontalOptions="Center" />
+            <Button
+                Text="Sign In"
+                HorizontalOptions="Center"
+                Clicked="OnSignInClicked" />
+        </VerticalStackLayout>
+
+        <!-- Loading indicator -->
+        <ActivityIndicator
+            Grid.Row="1"
+            IsRunning="{Binding IsLoading}"
+            IsVisible="{Binding IsLoading}"
+            HorizontalOptions="Center"
+            VerticalOptions="Center" />
+
+        <!-- Favourites list -->
+        <RefreshView
+            Grid.Row="1"
+            Command="{Binding LoadCommand}"
+            IsRefreshing="{Binding IsLoading}"
+            IsVisible="{Binding ShowLoginPrompt, Converter={StaticResource InvertBoolConverter}}">
+
+            <CollectionView
+                ItemsSource="{Binding Favourites}"
+                SelectionMode="None">
+
+                <CollectionView.ItemTemplate>
+                    <DataTemplate x:DataType="models:FavouriteStopDto">
+                        <SwipeView>
+                            <SwipeView.RightItems>
+                                <SwipeItems Mode="Execute">
+                                    <SwipeItem
+                                        Text="Remove"
+                                        BackgroundColor="Red"
+                                        Command="{Binding Source={RelativeSource AncestorType={x:Type vm:FavouritesViewModel}}, Path=RemoveFavouriteCommand}"
+                                        CommandParameter="{Binding .}" />
+                                </SwipeItems>
+                            </SwipeView.RightItems>
+
+                            <Grid Padding="16,12" ColumnDefinitions="*,Auto">
+                                <VerticalStackLayout Grid.Column="0" Spacing="2">
+                                    <Label
+                                        Text="{Binding DisplayLabel}"
+                                        FontSize="15"
+                                        FontAttributes="Bold" />
+                                    <Label
+                                        Text="{Binding StopId}"
+                                        FontSize="12"
+                                        TextColor="Gray" />
+                                </VerticalStackLayout>
+                                <Label
+                                    Grid.Column="1"
+                                    Text="›"
+                                    FontSize="20"
+                                    TextColor="Gray"
+                                    VerticalOptions="Center" />
+                                <Grid.GestureRecognizers>
+                                    <TapGestureRecognizer
+                                        Command="{Binding Source={RelativeSource AncestorType={x:Type vm:FavouritesViewModel}}, Path=GoToStopCommand}"
+                                        CommandParameter="{Binding .}" />
+                                </Grid.GestureRecognizers>
+                            </Grid>
+                        </SwipeView>
+                    </DataTemplate>
+                </CollectionView.ItemTemplate>
+
+                <CollectionView.EmptyView>
+                    <Label
+                        Text="No saved stops yet. Search for a stop and tap the star."
+                        HorizontalOptions="Center"
+                        VerticalOptions="Center"
+                        TextColor="Gray"
+                        HorizontalTextAlignment="Center"
+                        Margin="24,32" />
+                </CollectionView.EmptyView>
+
+            </CollectionView>
+        </RefreshView>
+
+    </Grid>
+
+</ContentPage>

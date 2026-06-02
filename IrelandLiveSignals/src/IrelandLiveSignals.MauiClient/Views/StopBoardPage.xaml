@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:vm="clr-namespace:IrelandLiveSignals.MauiClient.ViewModels"
+    xmlns:models="clr-namespace:IrelandLiveSignals.MauiClient.Models"
+    xmlns:conv="clr-namespace:IrelandLiveSignals.MauiClient.Converters"
+    x:Class="IrelandLiveSignals.MauiClient.Views.StopBoardPage"
+    x:DataType="vm:StopBoardViewModel"
+    Title="{Binding StopName}">
+
+    <ContentPage.Resources>
+        <conv:GhostRiskToColorConverter x:Key="GhostRiskToColor" />
+        <conv:FavouriteIconConverter x:Key="FavouriteIconConverter" />
+        <conv:NonZeroBoolConverter x:Key="NonZeroBoolConverter" />
+    </ContentPage.Resources>
+
+    <ContentPage.ToolbarItems>
+        <ToolbarItem
+            Text="{Binding IsFavourite, Converter={StaticResource FavouriteIconConverter}}"
+            Command="{Binding ToggleFavouriteCommand}" />
+    </ContentPage.ToolbarItems>
+
+    <Grid RowDefinitions="Auto,*">
+
+        <!-- Offline / loading row -->
+        <Grid Grid.Row="0">
+            <Frame
+                BackgroundColor="Orange"
+                Padding="8"
+                CornerRadius="0"
+                IsVisible="{Binding IsOffline}">
+                <Label
+                    Text="Showing cached data"
+                    TextColor="White"
+                    HorizontalOptions="Center"
+                    FontSize="13" />
+            </Frame>
+            <ActivityIndicator
+                IsRunning="{Binding IsLoading}"
+                IsVisible="{Binding IsLoading}"
+                HorizontalOptions="Center"
+                Margin="4" />
+        </Grid>
+
+        <!-- Arrivals list -->
+        <RefreshView
+            Grid.Row="1"
+            Command="{Binding RefreshCommand}"
+            IsRefreshing="{Binding IsLoading}">
+
+            <CollectionView
+                ItemsSource="{Binding Arrivals}"
+                SelectionMode="None">
+
+                <CollectionView.ItemTemplate>
+                    <DataTemplate x:DataType="models:ArrivalDto">
+                        <Grid
+                            Padding="12,10"
+                            ColumnDefinitions="Auto,*,Auto"
+                            RowDefinitions="Auto,Auto">
+
+                            <!-- Route badge -->
+                            <Frame
+                                Grid.Row="0" Grid.RowSpan="2" Grid.Column="0"
+                                BackgroundColor="#1E6FBC"
+                                CornerRadius="4"
+                                Padding="8,4"
+                                VerticalOptions="Center"
+                                Margin="0,0,10,0">
+                                <Label
+                                    Text="{Binding RouteShortName}"
+                                    TextColor="White"
+                                    FontAttributes="Bold"
+                                    FontSize="14" />
+                            </Frame>
+
+                            <Label
+                                Grid.Row="0" Grid.Column="1"
+                                Text="{Binding Headsign}"
+                                FontSize="14"
+                                FontAttributes="Bold" />
+
+                            <Label
+                                Grid.Row="1" Grid.Column="1"
+                                Text="{Binding StatusLabel}"
+                                FontSize="12"
+                                TextColor="{Binding GhostRisk, Converter={StaticResource GhostRiskToColor}}" />
+
+                            <VerticalStackLayout
+                                Grid.Row="0" Grid.RowSpan="2" Grid.Column="2"
+                                VerticalOptions="Center"
+                                HorizontalOptions="End"
+                                Spacing="2">
+                                <Label
+                                    Text="{Binding EstimatedArrivalUtc, StringFormat='{0:HH:mm}'}"
+                                    FontSize="18"
+                                    FontAttributes="Bold"
+                                    HorizontalOptions="End" />
+                                <Label
+                                    Text="{Binding DelaySeconds, StringFormat='+{0}s'}"
+                                    FontSize="11"
+                                    TextColor="Orange"
+                                    HorizontalOptions="End"
+                                    IsVisible="{Binding DelaySeconds, Converter={StaticResource NonZeroBoolConverter}}" />
+                            </VerticalStackLayout>
+
+                        </Grid>
+                    </DataTemplate>
+                </CollectionView.ItemTemplate>
+
+                <CollectionView.EmptyView>
+                    <Label
+                        Text="No upcoming arrivals"
+                        HorizontalOptions="Center"
+                        VerticalOptions="Center"
+                        TextColor="Gray"
+                        Margin="0,32" />
+                </CollectionView.EmptyView>
+
+            </CollectionView>
+        </RefreshView>
+
+    </Grid>
+
+</ContentPage>

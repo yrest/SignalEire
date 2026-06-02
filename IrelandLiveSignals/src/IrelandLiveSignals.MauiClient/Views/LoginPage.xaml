@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:vm="clr-namespace:IrelandLiveSignals.MauiClient.ViewModels"
+    x:Class="IrelandLiveSignals.MauiClient.Views.LoginPage"
+    x:DataType="vm:LoginViewModel"
+    Title="Sign In">
+
+    <ScrollView>
+        <VerticalStackLayout
+            Padding="32"
+            Spacing="16"
+            VerticalOptions="Center">
+
+            <Label
+                Text="IrelandLiveSignals"
+                FontSize="28"
+                FontAttributes="Bold"
+                HorizontalOptions="Center"
+                Margin="0,0,0,24" />
+
+            <Entry
+                Placeholder="Email address"
+                Text="{Binding Email}"
+                Keyboard="Email"
+                ReturnType="Next" />
+
+            <Entry
+                Placeholder="Password"
+                Text="{Binding Password}"
+                IsPassword="True"
+                ReturnType="Done" />
+
+            <Label
+                Text="{Binding ErrorMessage}"
+                TextColor="Red"
+                IsVisible="{Binding ErrorMessage, Converter={StaticResource StringToBoolConverter}}"
+                FontSize="13" />
+
+            <ActivityIndicator
+                IsRunning="{Binding IsLoading}"
+                IsVisible="{Binding IsLoading}"
+                HorizontalOptions="Center" />
+
+            <Button
+                Text="Sign In"
+                Command="{Binding LoginCommand}"
+                IsEnabled="{Binding IsLoading, Converter={StaticResource InvertBoolConverter}}"
+                HorizontalOptions="Fill"
+                Margin="0,8,0,0" />
+
+            <Button
+                Text="Create account"
+                Command="{Binding GoToRegisterCommand}"
+                Style="{StaticResource TextButtonStyle}"
+                HorizontalOptions="Center" />
+
+        </VerticalStackLayout>
+    </ScrollView>
+
+</ContentPage>
