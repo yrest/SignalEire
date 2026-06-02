@@ -1,4 +1,5 @@
 using IrelandLiveSignals.Core.Interfaces;
+using IrelandLiveSignals.Core.Services;
 using IrelandLiveSignals.Infrastructure.Transit;
 using Microsoft.Extensions.Options;
 
@@ -9,16 +10,23 @@ public class TransitPollerService : BackgroundService
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly NtaTransitOptions _opts;
     private readonly ILogger<TransitPollerService> _logger;
+    private readonly SignalEireMetrics? _metrics;
+    private readonly LiveSignalState? _liveState;
 
     private DateTimeOffset _lastVehicles = DateTimeOffset.MinValue;
     private DateTimeOffset _lastTripUpdates = DateTimeOffset.MinValue;
     private DateTimeOffset _lastAlerts = DateTimeOffset.MinValue;
 
-    public TransitPollerService(IServiceScopeFactory scopeFactory, IOptions<NtaTransitOptions> opts, ILogger<TransitPollerService> logger)
+    public TransitPollerService(IServiceScopeFactory scopeFactory, IOptions<NtaTransitOptions> opts,
+        ILogger<TransitPollerService> logger,
+        SignalEireMetrics? metrics = null,
+        LiveSignalState? liveState = null)
     {
         _scopeFactory = scopeFactory;
         _opts = opts.Value;
         _logger = logger;
+        _metrics = metrics;
+        _liveState = liveState;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -85,6 +93,10 @@ public class TransitPollerService : BackgroundService
                 }, ct);
             }
 
+            _metrics?.VehicleObservationsIngested.Add(vehicles.Count);
+            if (_liveState is not null)
+                _liveState.ActiveVehicleCount = vehicles.Count;
+
             _logger.LogDebug("Vehicles polled: {Count}", vehicles.Count);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -109,6 +121,7 @@ public class TransitPollerService : BackgroundService
                 await repo.SaveTripDelaysAsync(group.Key, delays, ct);
             }
 
+            _metrics?.TripMatchesTotal.Add(byTrip.Count());
             _logger.LogDebug("Trip updates polled: {Count} stop-time entries", updates.Count);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)

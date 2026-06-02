@@ -1,10 +1,15 @@
 using IrelandLiveSignals.Core.Interfaces;
 using IrelandLiveSignals.Infrastructure.EirGrid;
+using IrelandLiveSignals.Infrastructure.Identity;
 using IrelandLiveSignals.Infrastructure.Persistence;
+using IrelandLiveSignals.Infrastructure.Push;
+using IrelandLiveSignals.Infrastructure.Qdrant;
 using IrelandLiveSignals.Infrastructure.Transit;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace IrelandLiveSignals.Infrastructure;
 
@@ -39,11 +44,12 @@ public static class ServiceCollectionExtensions
         services.AddHttpClient<EirGridAdapter>();
         services.AddScoped<IGridDataAdapter, EirGridAdapter>();
 
-        var connectionString = configuration.GetConnectionString("SqlServer")
-            ?? "Server=(localdb)\\mssqllocaldb;Database=SignalEire;Trusted_Connection=True;";
+        var connectionString = configuration.GetConnectionString("DefaultConnection")
+            ?? configuration.GetConnectionString("SqlServer")
+            ?? "Data Source=signaleire.db";
 
-        services.AddDbContext<GridDbContext>(opts => opts.UseSqlServer(connectionString));
-        services.AddDbContextFactory<GridDbContext>(opts => opts.UseSqlServer(connectionString),
+        services.AddDbContext<GridDbContext>(opts => opts.UseSqlite(connectionString));
+        services.AddDbContextFactory<GridDbContext>(opts => opts.UseSqlite(connectionString),
             ServiceLifetime.Scoped);
 
         services.AddScoped<IGridReadingRepository, GridReadingRepository>();
@@ -53,6 +59,19 @@ public static class ServiceCollectionExtensions
         services.AddHttpClient<NtaRealtimeAdapter>();
         services.AddScoped<NtaRealtimeAdapter>();
         services.AddScoped<GtfsStaticImporter>();
+
+        services.AddSingleton<IQdrantSummaryIndexer, NullQdrantSummaryIndexer>();
+
+        services.AddIdentity<ApplicationUser, IdentityRole>(options =>
+        {
+            options.SignIn.RequireConfirmedEmail = false;
+            options.Password.RequiredLength = 8;
+            options.Password.RequireNonAlphanumeric = false;
+        })
+        .AddEntityFrameworkStores<GridDbContext>()
+        .AddDefaultTokenProviders();
+
+        services.AddScoped<IPushNotificationService, VapidPushNotificationService>();
 
         return services;
     }

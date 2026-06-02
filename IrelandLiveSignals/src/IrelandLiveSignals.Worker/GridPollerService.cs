@@ -12,16 +12,23 @@ public class GridPollerService : BackgroundService
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<GridPollerService> _logger;
     private readonly TimeSpan _interval;
+    private readonly SignalEireMetrics? _metrics;
+    private readonly LiveSignalState? _liveState;
 
     public static DateTimeOffset? LastRunUtc { get; private set; }
     public static bool IsRunning { get; private set; }
 
-    public GridPollerService(IServiceScopeFactory scopeFactory, ILogger<GridPollerService> logger, IConfiguration configuration)
+    public GridPollerService(IServiceScopeFactory scopeFactory, ILogger<GridPollerService> logger,
+        IConfiguration configuration,
+        SignalEireMetrics? metrics = null,
+        LiveSignalState? liveState = null)
     {
         _scopeFactory = scopeFactory;
         _logger = logger;
         var minutes = configuration.GetValue("GridPoller:IntervalMinutes", 5);
         _interval = TimeSpan.FromMinutes(minutes);
+        _metrics = metrics;
+        _liveState = liveState;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -55,6 +62,19 @@ public class GridPollerService : BackgroundService
 
             await readingRepo.SaveAsync(reading, ct);
 
+            // Record metrics
+            if (_metrics is not null)
+            {
+                _metrics.GridReadingsIngested.Add(1);
+                _metrics.GridCo2Intensity.Record(reading.Co2IntensityGPerKwh);
+                _metrics.GridGreenScore.Record(reading.GreenScore);
+            }
+            if (_liveState is not null)
+            {
+                _liveState.LatestCo2GPerKwh = reading.Co2IntensityGPerKwh;
+                _liveState.LastSuccessfulFetch["eirgrid"] = DateTimeOffset.UtcNow;
+            }
+
             _logger.LogInformation(
                 "Grid reading saved. Region={Region} Renewables={Renewables:F1}% CO2={Co2:F0}g/kWh Score={Score:F2} Status={Status}",
                 reading.Region, reading.RenewablesPercent, reading.Co2IntensityGPerKwh, reading.GreenScore, reading.GreenStatus);
@@ -70,6 +90,7 @@ public class GridPollerService : BackgroundService
                 {
                     await alertRepo.SaveDeliveryAsync(result.Delivery, ct);
                     fired++;
+                    _metrics?.AlertsFired.Add(1);
                     _logger.LogInformation("Alert fired: Rule={RuleName} Message={Message}", rule.RuleName, result.Delivery.Message);
                 }
             }

@@ -1,0 +1,65 @@
+@page
+@model IrelandLiveSignals.Api.Pages.IntelligenceModel
+@{
+    ViewData["Title"] = "Intelligence";
+}
+
+<h1>SignalEire Intelligence</h1>
+
+<ul class="nav nav-tabs mb-3" id="intelligenceTab" role="tablist">
+    <li class="nav-item" role="presentation">
+        <button class="nav-link active" id="grid-tab" data-bs-toggle="tab" data-bs-target="#grid"
+                type="button" role="tab">Grid</button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="transit-tab" data-bs-toggle="tab" data-bs-target="#transit"
+                type="button" role="tab">Transit</button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="anomalies-tab" data-bs-toggle="tab" data-bs-target="#anomalies"
+                type="button" role="tab">Anomalies</button>
+    </li>
+</ul>
+
+<div class="tab-content" id="intelligenceTabContent">
+    <div class="tab-pane fade show active" id="grid" role="tabpanel">
+        <h3>Grid Intelligence</h3>
+        <p>Latest CO₂ Intensity: <strong>@Model.LatestCo2.ToString("F0") g/kWh</strong></p>
+        <p>Renewables: <strong>@Model.LatestRenewables.ToString("F1")%</strong></p>
+    </div>
+
+    <div class="tab-pane fade" id="transit" role="tabpanel">
+        <h3>Transit Intelligence</h3>
+        <p>Active Vehicles: <strong>@Model.ActiveVehicles</strong></p>
+    </div>
+
+    <div class="tab-pane fade" id="anomalies" role="tabpanel">
+        <h3>Anomalies — Last 30 Days</h3>
+        <table class="table table-sm table-bordered">
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Module</th>
+                    <th>Type</th>
+                    <th>Explanation</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var a in Model.Anomalies)
+                {
+                    var rowClass = a.AnomalyType is "low_co2_day" ? "table-success" : "table-danger";
+                    <tr class="@rowClass">
+                        <td>@a.Date.ToString("dd MMM")</td>
+                        <td>@a.Module</td>
+                        <td>@a.AnomalyType</td>
+                        <td>@a.ExplanationText</td>
+                    </tr>
+                }
+                @if (!Model.Anomalies.Any())
+                {
+                    <tr><td colspan="4" class="text-muted">No anomalies detected in the last 30 days.</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>

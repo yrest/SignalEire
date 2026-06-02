@@ -1,9 +1,11 @@
 using IrelandLiveSignals.Core.Models;
+using IrelandLiveSignals.Infrastructure.Identity;
+using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 
 namespace IrelandLiveSignals.Infrastructure.Persistence;
 
-public class GridDbContext : DbContext
+public class GridDbContext : IdentityDbContext<ApplicationUser>
 {
     public GridDbContext(DbContextOptions<GridDbContext> options) : base(options) { }
 
@@ -27,8 +29,18 @@ public class GridDbContext : DbContext
     public DbSet<TransitUserReport> TransitUserReports => Set<TransitUserReport>();
     public DbSet<TransitReliabilityAggregate> TransitReliabilityAggregates => Set<TransitReliabilityAggregate>();
 
+    // Phase 5/6
+    public DbSet<SignalAnomaly> SignalAnomalies => Set<SignalAnomaly>();
+    public DbSet<AlertFiring> AlertFirings => Set<AlertFiring>();
+
+    // Phase 5 user features
+    public DbSet<FavouriteStop> FavouriteStops => Set<FavouriteStop>();
+    public DbSet<PushSubscription> PushSubscriptions => Set<PushSubscription>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        base.OnModelCreating(modelBuilder);
+
         modelBuilder.Entity<GridReading>(e =>
         {
             e.HasKey(r => r.Id);
@@ -131,6 +143,34 @@ public class GridDbContext : DbContext
         {
             e.HasKey(a => new { a.RouteId, a.StopId });
             e.HasIndex(a => a.ReliabilityScore);
+        });
+
+        modelBuilder.Entity<SignalAnomaly>(e =>
+        {
+            e.HasKey(a => a.Id);
+            e.HasIndex(a => new { a.Module, a.Date });
+            e.HasIndex(a => a.DetectedAtUtc);
+        });
+
+        modelBuilder.Entity<AlertFiring>(e =>
+        {
+            e.HasKey(f => f.Id);
+            e.HasIndex(f => f.AlertRuleId);
+            e.HasIndex(f => f.FiredAtUtc);
+            e.HasIndex(f => f.IncludedInDigest);
+        });
+
+        modelBuilder.Entity<FavouriteStop>(e =>
+        {
+            e.HasKey(f => f.Id);
+            e.HasIndex(f => f.UserId);
+        });
+
+        modelBuilder.Entity<PushSubscription>(e =>
+        {
+            e.HasKey(p => p.Id);
+            e.HasIndex(p => p.Endpoint).IsUnique();
+            e.HasIndex(p => p.UserId);
         });
     }
 }
