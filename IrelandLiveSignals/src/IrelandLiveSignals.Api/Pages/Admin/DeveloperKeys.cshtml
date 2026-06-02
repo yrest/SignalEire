@@ -1,0 +1,44 @@
+@page
+@model IrelandLiveSignals.Api.Pages.Admin.DeveloperKeysModel
+@{
+    ViewData["Title"] = "Developer API Keys";
+    Layout = "_Layout";
+}
+<h2>Developer API Keys</h2>
+
+@if (Model.NewKeyPlaintext is not null)
+{
+    <div class="alert alert-warning">
+        <strong>Copy this key now — it will not be shown again:</strong>
+        <code class="d-block mt-2 fs-5 user-select-all">@Model.NewKeyPlaintext</code>
+    </div>
+}
+
+<table class="table">
+    <thead><tr><th>Name</th><th>Owner</th><th>Rate Limit</th><th>Last Used</th><th>Active</th><th></th></tr></thead>
+    <tbody>
+    @foreach (var key in Model.Keys)
+    {
+        <tr>
+            <td>@key.Name</td>
+            <td>@key.OwnerEmail</td>
+            <td>@key.RateLimitPerMinute req/min</td>
+            <td>@(key.LastUsedAtUtc?.ToString("dd MMM yyyy HH:mm") ?? "Never")</td>
+            <td>@(key.IsActive ? "✓" : "✗")</td>
+            <td>
+                <form method="post" asp-page-handler="Delete" asp-route-id="@key.Id" style="display:inline">
+                    <button class="btn btn-sm btn-danger">Delete</button>
+                </form>
+            </td>
+        </tr>
+    }
+    </tbody>
+</table>
+
+<h4>Create Key</h4>
+<form method="post">
+    <input asp-for="NewKey.Name" class="form-control mb-2" placeholder="Key name" />
+    <input asp-for="NewKey.OwnerEmail" class="form-control mb-2" placeholder="Owner email" />
+    <input asp-for="NewKey.RateLimitPerMinute" class="form-control mb-2" placeholder="Rate limit (default 200)" type="number" />
+    <button class="btn btn-primary">Create Key</button>
+</form>

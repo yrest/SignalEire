@@ -12,4 +12,7 @@ public class ApplicationUser : IdentityUser
     public bool DigestEnabled { get; set; } = false;
     public TimeOnly DigestTime { get; set; } = new(08, 00);
     public string DigestSchedule { get; set; } = "daily";
+
+    // Phase 8 — tariff preference
+    public string? PreferredTariffPlanId { get; set; }
 }

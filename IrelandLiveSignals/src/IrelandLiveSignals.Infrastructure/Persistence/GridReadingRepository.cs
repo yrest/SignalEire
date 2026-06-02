@@ -16,8 +16,9 @@ public class GridReadingRepository : IGridReadingRepository
         await _db.SaveChangesAsync(cancellationToken);
     }
 
-    public async Task<GridReading?> GetLatestAsync(CancellationToken cancellationToken = default) =>
+    public async Task<GridReading?> GetLatestAsync(string region = "ROI", CancellationToken cancellationToken = default) =>
         await _db.GridReadings
+            .Where(r => r.Region == region)
             .OrderByDescending(r => r.TimestampUtc)
             .FirstOrDefaultAsync(cancellationToken);
 

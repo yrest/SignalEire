@@ -1,5 +1,7 @@
+using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using IrelandLiveSignals.MauiClient.Models;
 using IrelandLiveSignals.MauiClient.Services;
 
 namespace IrelandLiveSignals.MauiClient.ViewModels;
@@ -20,6 +22,12 @@ public partial class AccountViewModel : ObservableObject
 
     [ObservableProperty]
     private bool _pushNotificationsEnabled;
+
+    [ObservableProperty]
+    private ObservableCollection<TariffPlanSummary> _availablePlans = [];
+
+    [ObservableProperty]
+    private TariffPlanSummary? _selectedPlan;
 
     public AccountViewModel(IAuthService authService, ISignalEireApiClient apiClient)
     {
@@ -64,5 +72,19 @@ public partial class AccountViewModel : ObservableObject
     public async Task GoToLoginAsync()
     {
         await Shell.Current.GoToAsync("//Login");
+    }
+
+    [RelayCommand]
+    private async Task LoadTariffPlansAsync(CancellationToken ct = default)
+    {
+        var plans = await _apiClient.GetTariffPlansAsync(ct);
+        AvailablePlans = new ObservableCollection<TariffPlanSummary>(plans ?? []);
+        // SelectedPlan stays null = "None / I don't know" unless a pre-selection is needed
+    }
+
+    [RelayCommand]
+    private async Task SaveTariffPlanAsync(CancellationToken ct = default)
+    {
+        await _apiClient.SetTariffPlanAsync(SelectedPlan?.Id, ct);
     }
 }

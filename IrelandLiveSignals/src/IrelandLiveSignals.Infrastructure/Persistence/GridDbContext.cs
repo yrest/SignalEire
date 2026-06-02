@@ -41,6 +41,14 @@ public class GridDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<UserRefreshToken> UserRefreshTokens => Set<UserRefreshToken>();
     public DbSet<DeviceToken> DeviceTokens => Set<DeviceToken>();
 
+    // Phase 8 — tariff plans
+    public DbSet<TariffPlanEntity> TariffPlans => Set<TariffPlanEntity>();
+    public DbSet<TariffRatePeriod> TariffRatePeriods => Set<TariffRatePeriod>();
+
+    // Phase 8 — developer API keys
+    public DbSet<DeveloperApiKey> DeveloperApiKeys => Set<DeveloperApiKey>();
+    public DbSet<ApiKeyUsageLog> ApiKeyUsageLogs => Set<ApiKeyUsageLog>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -189,6 +197,34 @@ public class GridDbContext : IdentityDbContext<ApplicationUser>
             e.HasKey(t => t.Id);
             e.HasIndex(t => t.UserId);
             e.HasIndex(t => new { t.Token, t.Platform }).IsUnique();
+        });
+
+        modelBuilder.Entity<TariffPlanEntity>(e =>
+        {
+            e.HasKey(t => t.Id);
+            e.ToTable("TariffPlans");
+            e.HasMany(t => t.Periods)
+             .WithOne()
+             .HasForeignKey(p => p.TariffPlanId)
+             .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<TariffRatePeriod>(e =>
+        {
+            e.HasKey(p => p.Id);
+            e.HasIndex(p => p.TariffPlanId);
+        });
+
+        modelBuilder.Entity<DeveloperApiKey>(e =>
+        {
+            e.HasKey(k => k.Id);
+            e.HasIndex(k => k.KeyHash).IsUnique();
+        });
+
+        modelBuilder.Entity<ApiKeyUsageLog>(e =>
+        {
+            e.HasKey(l => l.Id);
+            e.HasIndex(l => new { l.ApiKeyId, l.Date }).IsUnique();
         });
     }
 }

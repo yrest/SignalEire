@@ -8,9 +8,9 @@ namespace IrelandLiveSignals.Core.Services;
 /// </summary>
 public static class TariffCatalogue
 {
-    public static IReadOnlyList<TariffPlan> All { get; } = new[]
+    public static IReadOnlyList<LegacyTariffPlan> All { get; } = new[]
     {
-        new TariffPlan
+        new LegacyTariffPlan
         {
             Id = "standard",
             Name = "Standard (Day Rate Only)",
@@ -20,7 +20,7 @@ public static class TariffCatalogue
                 new TariffWindow { Start = TimeOnly.MinValue, End = new TimeOnly(23, 59), Label = "day_rate", RelativeCost = 1.0 }
             }
         },
-        new TariffPlan
+        new LegacyTariffPlan
         {
             Id = "electric_ireland_home_ev_smart",
             Name = "Home EV Smart",
@@ -33,7 +33,7 @@ public static class TariffCatalogue
                 new TariffWindow { Start = new TimeOnly(8, 0),  End = new TimeOnly(22, 59, 59), Label = "day_rate",   RelativeCost = 1.0  }
             }
         },
-        new TariffPlan
+        new LegacyTariffPlan
         {
             Id = "bord_gais_night_saver",
             Name = "Night Saver",
@@ -48,10 +48,10 @@ public static class TariffCatalogue
         }
     };
 
-    public static TariffPlan GetById(string id) =>
+    public static LegacyTariffPlan GetById(string id) =>
         All.FirstOrDefault(p => p.Id == id) ?? All[0];
 
-    public static double RelativeCostAt(TariffPlan plan, TimeOnly time)
+    public static double RelativeCostAt(LegacyTariffPlan plan, TimeOnly time)
     {
         // Find the most specific window matching the time
         foreach (var w in plan.Windows)

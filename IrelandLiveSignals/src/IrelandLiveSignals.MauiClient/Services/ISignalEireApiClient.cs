@@ -18,4 +18,6 @@ public interface ISignalEireApiClient
     Task<LoginResponse?> LoginAsync(string email, string password, string? deviceLabel);
     Task<LoginResponse?> RefreshTokenAsync(string refreshToken);
     Task LogoutAsync(string? refreshToken, string? platform);
+    Task<List<TariffPlanSummary>?> GetTariffPlansAsync(CancellationToken ct = default);
+    Task SetTariffPlanAsync(string? tariffPlanId, CancellationToken ct = default);
 }

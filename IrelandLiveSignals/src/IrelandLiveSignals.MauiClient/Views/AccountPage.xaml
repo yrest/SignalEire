@@ -37,6 +37,22 @@
                     TextColor="White"
                     HorizontalOptions="Fill" />
 
+                <!-- Electricity plan section (visible only when authenticated) -->
+                <VerticalStackLayout IsVisible="{Binding IsAuthenticated}" Spacing="8" Margin="0,16,0,0">
+                    <Label Text="Electricity Plan" FontAttributes="Bold" FontSize="16" />
+                    <Label Text="Used to estimate EV charging costs and find cheapest windows."
+                           FontSize="13" TextColor="Gray" />
+                    <Picker
+                        x:DataType="vm:AccountViewModel"
+                        ItemsSource="{Binding AvailablePlans}"
+                        SelectedItem="{Binding SelectedPlan}"
+                        ItemDisplayBinding="{Binding Name}"
+                        Title="None / I don't know" />
+                    <Button Text="Save Plan"
+                            Command="{Binding SaveTariffPlanCommand}"
+                            Style="{StaticResource OutlinedButtonStyle}" />
+                </VerticalStackLayout>
+
             </VerticalStackLayout>
 
             <!-- Unauthenticated view -->

@@ -1,0 +1,43 @@
+@page
+@model IrelandLiveSignals.Api.Pages.Admin.TariffPlansModel
+@{
+    ViewData["Title"] = "Tariff Plans";
+    Layout = "_Layout";
+}
+<h2>Tariff Plans</h2>
+<p class="text-muted"><em>Rates shown are illustrative. Update them to match your actual plan.</em></p>
+
+<table class="table">
+    <thead><tr><th>Name</th><th>Provider</th><th>Type</th><th>Periods</th><th>Default</th><th>Active</th><th></th></tr></thead>
+    <tbody>
+    @foreach (var plan in Model.Plans)
+    {
+        <tr>
+            <td>@plan.Name</td>
+            <td>@plan.Provider</td>
+            <td>@plan.PlanType</td>
+            <td>@plan.Periods.Count</td>
+            <td>@(plan.IsDefault ? "✓" : "")</td>
+            <td>@(plan.IsActive ? "✓" : "✗")</td>
+            <td>
+                <form method="post" asp-page-handler="Delete" asp-route-id="@plan.Id" style="display:inline">
+                    <button class="btn btn-sm btn-danger">Delete</button>
+                </form>
+            </td>
+        </tr>
+    }
+    </tbody>
+</table>
+
+<h4>Add Plan</h4>
+<form method="post">
+    <input asp-for="NewPlan.Name" class="form-control mb-2" placeholder="Plan name" />
+    <input asp-for="NewPlan.Provider" class="form-control mb-2" placeholder="Provider" />
+    <select asp-for="NewPlan.PlanType" class="form-select mb-2">
+        <option value="night_rate">Night Rate</option>
+        <option value="flat">Flat Rate</option>
+        <option value="time_of_use">Time of Use</option>
+        <option value="custom">Custom</option>
+    </select>
+    <button class="btn btn-primary">Add Plan</button>
+</form>
