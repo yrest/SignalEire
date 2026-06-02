@@ -1,0 +1,140 @@
+@page
+@model IndexModel
+@using IrelandLiveSignals.Core.Services
+@{
+    ViewData["Title"] = "Ireland Live Signals";
+}
+
+@if (Model.Reading is null)
+{
+    <div class="no-data">
+        <p>No grid data available yet. The worker will fetch data shortly.</p>
+    </div>
+}
+else
+{
+    var r = Model.Reading;
+    var scoreDisplay = (int)Math.Round(r.GreenScore * 100);
+    var statusClass = r.GreenStatus switch { "good" => "good", "moderate" => "moderate", _ => "poor" };
+
+    <meta http-equiv="refresh" content="60" />
+
+    <div class="grid-dashboard">
+        <div class="score-card @statusClass">
+            <div class="score-value">@scoreDisplay</div>
+            <div class="score-label">Green Score</div>
+            <div class="status-badge @statusClass">@r.GreenStatus.ToUpper()</div>
+        </div>
+
+        <div class="recommendation @statusClass">
+            @r.Recommendation
+        </div>
+
+        <div class="metrics">
+            <div class="metric highlight">
+                <span class="metric-value">@r.Co2IntensityGPerKwh.ToString("F0")</span>
+                <span class="metric-unit">g CO₂/kWh</span>
+                <span class="metric-label">Carbon Intensity</span>
+            </div>
+
+            <div class="metric highlight">
+                <span class="metric-value">@r.RenewablesPercent.ToString("F1")</span>
+                <span class="metric-unit">%</span>
+                <span class="metric-label">Renewable Share</span>
+            </div>
+
+            <div class="metric">
+                <span class="metric-value">@r.WindGenerationMw.ToString("F0")</span>
+                <span class="metric-unit">MW</span>
+                <span class="metric-label">Wind Generation</span>
+            </div>
+
+            @if (r.SolarGenerationMw.HasValue)
+            {
+                <div class="metric">
+                    <span class="metric-value">@r.SolarGenerationMw.Value.ToString("F0")</span>
+                    <span class="metric-unit">MW</span>
+                    <span class="metric-label">Solar Generation</span>
+                </div>
+            }
+
+            <div class="metric">
+                <span class="metric-value">@r.SystemDemandMw.ToString("F0")</span>
+                <span class="metric-unit">MW</span>
+                <span class="metric-label">System Demand</span>
+            </div>
+        </div>
+
+        <div class="freshness">
+            <span>Data timestamp: @r.TimestampUtc.ToString("HH:mm:ss") UTC</span>
+            &bull;
+            <span>Last updated: @r.DataFreshnessSeconds s ago</span>
+            &bull;
+            <span class="quality @(r.QualityStatus == "stale" ? "stale" : "")">@r.QualityStatus</span>
+        </div>
+    </div>
+}
+
+<div class="transit-section">
+    <h2 class="section-title">Transit Reliability</h2>
+
+    <div class="transit-stats">
+        <div class="transit-stat">
+            <span class="stat-value">@Model.ActiveAlertCount</span>
+            <span class="stat-label">Active Service Alerts</span>
+        </div>
+        <div class="transit-stat">
+            <span class="stat-value">@Model.UserReportCount</span>
+            <span class="stat-label">User Reports (7 days)</span>
+        </div>
+        <div class="transit-stat">
+            <span class="stat-value">@Model.TopRoutes.Count</span>
+            <span class="stat-label">Routes Tracked</span>
+        </div>
+    </div>
+
+    @if (Model.TopRoutes.Any())
+    {
+        <h3 class="subsection-title">Top Reliable Routes</h3>
+        <table class="reliability-table">
+            <thead>
+                <tr>
+                    <th>Route</th>
+                    <th>Stop</th>
+                    <th>Observations</th>
+                    <th>Vehicle Confirmed</th>
+                    <th>Ghosts</th>
+                    <th>Reliability</th>
+                    <th>Label</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var agg in Model.TopRoutes)
+                {
+                    var label = TransitReliabilityService.ReliabilityLabel(agg.ReliabilityScore);
+                    var labelClass = label switch { "reliable" => "good", "moderate" => "moderate", _ => "poor" };
+                    var pct = (int)Math.Round(agg.ReliabilityScore * 100);
+                    var confirmedPct = agg.TotalObservations > 0
+                        ? (int)Math.Round(agg.VehicleConfirmedCount * 100.0 / agg.TotalObservations)
+                        : 0;
+                    var ghostPct = agg.TotalObservations > 0
+                        ? (int)Math.Round(agg.GhostCount * 100.0 / agg.TotalObservations)
+                        : 0;
+                    <tr>
+                        <td>@agg.RouteId</td>
+                        <td>@agg.StopId</td>
+                        <td>@agg.TotalObservations</td>
+                        <td>@confirmedPct%</td>
+                        <td>@ghostPct%</td>
+                        <td>@pct%</td>
+                        <td><span class="status-badge @labelClass">@label.ToUpper()</span></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+    else
+    {
+        <p class="no-data-small">No reliability data yet. Submit user reports via <code>POST /api/transit/reports</code> to seed the reliability engine.</p>
+    }
+</div>
