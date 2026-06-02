@@ -69,7 +69,21 @@ public class TransitPollerService : BackgroundService
 
             var vehicles = await adapter.FetchVehiclesAsync(ct);
             foreach (var v in vehicles)
+            {
                 await repo.UpsertVehicleObservationAsync(v, ct);
+                await repo.AppendTrailPointAsync(new IrelandLiveSignals.Core.Models.VehicleTrailPoint
+                {
+                    VehicleId = v.VehicleId,
+                    TripId = v.TripId,
+                    RouteId = v.RouteId,
+                    ObservedAtUtc = v.ObservedAtUtc,
+                    Lat = v.Lat,
+                    Lon = v.Lon,
+                    Bearing = v.Bearing,
+                    SpeedKph = v.SpeedKph,
+                    GpsAgeSeconds = v.GpsAgeSeconds
+                }, ct);
+            }
 
             _logger.LogDebug("Vehicles polled: {Count}", vehicles.Count);
         }

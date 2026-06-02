@@ -124,6 +124,24 @@ public class TransitRepository : ITransitRepository
     public async Task<IReadOnlyList<VehicleObservation>> GetVehiclesForRouteAsync(string routeId, CancellationToken ct = default) =>
         await _db.VehicleObservations.Where(v => v.RouteId == routeId).ToListAsync(ct);
 
+    public async Task AppendTrailPointAsync(VehicleTrailPoint point, CancellationToken ct = default)
+    {
+        _db.VehicleTrailPoints.Add(point);
+        await _db.SaveChangesAsync(ct);
+    }
+
+    public async Task<IReadOnlyList<VehicleTrailPoint>> GetVehicleTrailAsync(string vehicleId, DateTimeOffset since, CancellationToken ct = default) =>
+        await _db.VehicleTrailPoints
+            .Where(p => p.VehicleId == vehicleId && p.ObservedAtUtc >= since)
+            .OrderBy(p => p.ObservedAtUtc)
+            .ToListAsync(ct);
+
+    public async Task PruneTrailPointsAsync(DateTimeOffset olderThan, CancellationToken ct = default)
+    {
+        await _db.Database.ExecuteSqlRawAsync(
+            "DELETE FROM [VehicleTrailPoints] WHERE [ObservedAtUtc] < {0}", olderThan);
+    }
+
     // Trip delays stored as a simple in-memory cache per poll cycle — not persisted
     private readonly Dictionary<(string TripId, string StopId), int> _tripDelays = new();
 
@@ -179,6 +197,43 @@ public class TransitRepository : ITransitRepository
 
     public async Task<bool> HasStaticDataAsync(CancellationToken ct = default) =>
         await _db.TransitStops.AnyAsync(ct);
+
+    public async Task SaveUserReportAsync(TransitUserReport report, CancellationToken ct = default)
+    {
+        _db.TransitUserReports.Add(report);
+        await _db.SaveChangesAsync(ct);
+    }
+
+    public async Task<IReadOnlyList<TransitUserReport>> GetUserReportsAsync(string? routeId, string? stopId, DateTimeOffset since, CancellationToken ct = default)
+    {
+        var query = _db.TransitUserReports.Where(r => r.ReportedAtUtc >= since);
+        if (routeId is not null) query = query.Where(r => r.RouteId == routeId);
+        if (stopId is not null) query = query.Where(r => r.StopId == stopId);
+        return await query.OrderByDescending(r => r.ReportedAtUtc).ToListAsync(ct);
+    }
+
+    public async Task<TransitReliabilityAggregate?> GetReliabilityAsync(string routeId, string stopId, CancellationToken ct = default) =>
+        await _db.TransitReliabilityAggregates.FindAsync(new object[] { routeId, stopId }, ct);
+
+    public async Task UpsertReliabilityAggregateAsync(TransitReliabilityAggregate agg, CancellationToken ct = default)
+    {
+        var existing = await _db.TransitReliabilityAggregates.FindAsync(new object[] { agg.RouteId, agg.StopId }, ct);
+        if (existing is null)
+            _db.TransitReliabilityAggregates.Add(agg);
+        else
+            _db.Entry(existing).CurrentValues.SetValues(agg);
+        await _db.SaveChangesAsync(ct);
+    }
+
+    public async Task<IReadOnlyList<TransitReliabilityAggregate>> GetTopReliableRoutesAsync(int limit = 10, CancellationToken ct = default) =>
+        await _db.TransitReliabilityAggregates
+            .Where(a => a.TotalObservations >= 5)
+            .OrderByDescending(a => a.ReliabilityScore)
+            .Take(limit)
+            .ToListAsync(ct);
+
+    public async Task<IReadOnlyList<TransitReliabilityAggregate>> GetAllAggregatesAsync(CancellationToken ct = default) =>
+        await _db.TransitReliabilityAggregates.ToListAsync(ct);
 
     private static double HaversineMeters(double lat1, double lon1, double lat2, double lon2)
     {

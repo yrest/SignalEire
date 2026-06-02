@@ -22,6 +22,11 @@ public class GridDbContext : DbContext
     public DbSet<VehicleObservation> VehicleObservations => Set<VehicleObservation>();
     public DbSet<ServiceAlertRecord> ServiceAlerts => Set<ServiceAlertRecord>();
 
+    // Phase 4 — reliability layer
+    public DbSet<VehicleTrailPoint> VehicleTrailPoints => Set<VehicleTrailPoint>();
+    public DbSet<TransitUserReport> TransitUserReports => Set<TransitUserReport>();
+    public DbSet<TransitReliabilityAggregate> TransitReliabilityAggregates => Set<TransitReliabilityAggregate>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<GridReading>(e =>
@@ -106,6 +111,26 @@ public class GridDbContext : DbContext
              .HasConversion(
                  v => string.Join(",", v),
                  v => v.Split(',', StringSplitOptions.RemoveEmptyEntries));
+        });
+
+        modelBuilder.Entity<VehicleTrailPoint>(e =>
+        {
+            e.HasKey(p => p.Id);
+            e.HasIndex(p => new { p.VehicleId, p.ObservedAtUtc });
+            e.HasIndex(p => p.ObservedAtUtc); // for pruning
+        });
+
+        modelBuilder.Entity<TransitUserReport>(e =>
+        {
+            e.HasKey(r => r.Id);
+            e.HasIndex(r => new { r.RouteId, r.StopId });
+            e.HasIndex(r => r.ReportedAtUtc);
+        });
+
+        modelBuilder.Entity<TransitReliabilityAggregate>(e =>
+        {
+            e.HasKey(a => new { a.RouteId, a.StopId });
+            e.HasIndex(a => a.ReliabilityScore);
         });
     }
 }

@@ -2,6 +2,7 @@ using IrelandLiveSignals.Api.Worker;
 using IrelandLiveSignals.Core.Interfaces;
 using IrelandLiveSignals.Core.Models;
 using IrelandLiveSignals.Core.Services;
+using TransitUserReport = IrelandLiveSignals.Core.Models.TransitUserReport;
 using IrelandLiveSignals.Infrastructure;
 using IrelandLiveSignals.Infrastructure.Persistence;
 using IrelandLiveSignals.Worker;
@@ -23,6 +24,7 @@ builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddHostedService<GridPollerService>();
 builder.Services.AddHostedService<TransitPollerService>();
 builder.Services.AddHostedService<GtfsStaticRefreshService>();
+builder.Services.AddHostedService<ReliabilityAggregationService>();
 builder.Services.AddRazorPages();
 
 var app = builder.Build();
@@ -344,6 +346,101 @@ app.MapGet("/api/transit/alerts", async (ITransitRepository repo) =>
     return Results.Ok(alerts);
 });
 
+// ── Transit reliability (Phase 4) ─────────────────────────────────────────
+
+app.MapGet("/api/transit/trips/{tripId}/trust", async (ITransitRepository repo, string tripId) =>
+{
+    var vehicle = await repo.GetVehicleForTripAsync(tripId);
+    var trailSince = DateTimeOffset.UtcNow.AddHours(-4);
+    var trail = vehicle is not null
+        ? await repo.GetVehicleTrailAsync(vehicle.VehicleId, trailSince)
+        : [];
+
+    if (vehicle is null && !trail.Any())
+        return Results.NotFound(new { error = $"No live data for trip '{tripId}'." });
+
+    var presence = vehicle is not null
+        ? VehiclePresence.VehicleConfirmed
+        : VehiclePresence.TripUpdateOnly;
+
+    var confidence = TransitConfidenceService.Compute(new ConfidenceInput
+    {
+        Presence = presence,
+        GpsAgeSeconds = vehicle?.GpsAgeSeconds,
+        TripIdMatched = true,
+        RouteMatched = true,
+        HasServiceAlert = false
+    });
+
+    return Results.Ok(new
+    {
+        tripId,
+        vehicleId = vehicle?.VehicleId,
+        routeId = vehicle?.RouteId,
+        currentLat = vehicle?.Lat,
+        currentLon = vehicle?.Lon,
+        bearing = vehicle?.Bearing,
+        speedKph = vehicle?.SpeedKph,
+        gpsAgeSeconds = vehicle?.GpsAgeSeconds,
+        observedAtUtc = vehicle?.ObservedAtUtc,
+        confidence = Math.Round(confidence.Score, 3),
+        ghostRisk = confidence.GhostRisk,
+        statusLabel = confidence.StatusLabel,
+        trailPoints = trail.Select(p => new { p.ObservedAtUtc, p.Lat, p.Lon, p.Bearing, p.SpeedKph })
+    });
+});
+
+app.MapGet("/api/transit/vehicles/{vehicleId}/trail", async (ITransitRepository repo,
+    string vehicleId, int hours = 4) =>
+{
+    var since = DateTimeOffset.UtcNow.AddHours(-Math.Clamp(hours, 1, 48));
+    var trail = await repo.GetVehicleTrailAsync(vehicleId, since);
+    return Results.Ok(new { vehicleId, since, points = trail });
+});
+
+app.MapPost("/api/transit/reports", async (ITransitRepository repo, TransitReportRequest request) =>
+{
+    var validTypes = new[] { "bus_seen", "bus_not_appeared", "bus_passed_full", "wrong_destination", "gps_marker_wrong" };
+    if (!validTypes.Contains(request.ReportType))
+        return Results.BadRequest(new { error = $"reportType must be one of: {string.Join(", ", validTypes)}" });
+    if (string.IsNullOrWhiteSpace(request.StopId) || string.IsNullOrWhiteSpace(request.RouteId))
+        return Results.BadRequest(new { error = "stopId and routeId are required." });
+
+    var report = new TransitUserReport
+    {
+        Id = $"report_{Guid.NewGuid():N}",
+        StopId = request.StopId,
+        RouteId = request.RouteId,
+        TripId = request.TripId,
+        ReportType = request.ReportType,
+        ReportedAtUtc = DateTimeOffset.UtcNow,
+        ReporterLat = request.Lat,
+        ReporterLon = request.Lon,
+        TrustWeight = 0.4
+    };
+
+    await repo.SaveUserReportAsync(report);
+    return Results.Created($"/api/transit/reports/{report.Id}", new { report.Id, report.ReportType });
+});
+
+app.MapGet("/api/transit/reliability", async (ITransitRepository repo,
+    string? routeId, string? stopId) =>
+{
+    if (routeId is not null && stopId is not null)
+    {
+        var agg = await repo.GetReliabilityAsync(routeId, stopId);
+        if (agg is null)
+            return Results.NotFound(new { error = "No reliability data for this route/stop combination." });
+
+        var reports = await repo.GetUserReportsAsync(routeId, stopId, DateTimeOffset.UtcNow.AddDays(-30));
+        var report = TransitReliabilityService.BuildReport(agg, reports);
+        return Results.Ok(report);
+    }
+
+    var top = await repo.GetTopReliableRoutesAsync(20);
+    return Results.Ok(top);
+});
+
 app.Run();
 
 // ── Request types ─────────────────────────────────────────────────────────
@@ -366,4 +463,13 @@ record AlertRuleRequest(
     int? MaxAlertsPerDay,
     TimeSpan? QuietHoursStart,
     TimeSpan? QuietHoursEnd
+);
+
+record TransitReportRequest(
+    string StopId,
+    string RouteId,
+    string? TripId,
+    string ReportType,
+    double? Lat,
+    double? Lon
 );
