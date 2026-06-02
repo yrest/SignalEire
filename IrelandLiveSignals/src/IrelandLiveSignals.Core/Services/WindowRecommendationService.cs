@@ -25,7 +25,7 @@ public static class WindowRecommendationService
         IReadOnlyList<ForecastSlot> forecast,
         int durationMinutes,
         string mode,
-        TariffPlan tariff,
+        LegacyTariffPlan tariff,
         TimeOnly? quietStart = null,
         TimeOnly? quietEnd = null)
     {

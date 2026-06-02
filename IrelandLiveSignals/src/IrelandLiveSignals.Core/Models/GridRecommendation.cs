@@ -25,4 +25,9 @@ public record GridRecommendation
     public double? EstimatedSavingKgCo2 { get; init; }
     public double Confidence { get; init; }
     public string[] Explanation { get; init; } = Array.Empty<string>();
+
+    // Phase 8 — tariff cost estimates
+    public decimal? EstimatedCostEuro { get; init; }
+    public decimal? EstimatedSavingEuro { get; init; }
+    public string? TariffPlanName { get; init; }
 }

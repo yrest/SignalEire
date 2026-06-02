@@ -8,7 +8,7 @@ public record TariffWindow
     public double RelativeCost { get; init; }              // 1.0 = standard; <1.0 = cheaper
 }
 
-public record TariffPlan
+public record LegacyTariffPlan
 {
     public string Id { get; init; } = string.Empty;
     public string Name { get; init; } = string.Empty;
